@@ -1,0 +1,110 @@
+{
+  "name": "node-ts-backend-starter",
+  "version": "1.0.0",
+  "description": "Production-ready Node.js REST API starter with TypeScript, Express, Mongoose, Redis, BullMQ, and i18n. Features advanced soft-delete architecture, background jobs, rate-limiting, and robust error handling.",
+  "keywords": [
+    "node",
+    "express",
+    "typescript",
+    "mongoose",
+    "boilerplate",
+    "starter",
+    "soft-delete",
+    "bullmq",
+    "redis",
+    "i18n",
+    "production-ready"
+  ],
+  "author": "Ulas Deniz Isik",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ulasdnz/node-ts-backend-starter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ulasdnz/node-ts-backend-starter/issues"
+  },
+  "homepage": "https://github.com/ulasdnz/node-ts-backend-starter#readme",
+  "scripts": {
+    "build": "tsc && xcopy /E /I /Y src\\utils\\lang dist\\utils\\lang",
+    "start": "node dist/app.js",
+    "dev": "tsx watch src/app.ts",
+    "seed": "tsx src/database/seeders/index.ts",
+    "migrate": "tsx src/database/migrations/index.ts",
+    "migration:create": "tsx src/scripts/create-migration.ts",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepare": "husky"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run lint:fix && npm run typecheck && npm run test:coverage"
+    }
+  },
+  "lint-staged": {
+    "*.{ts,mts,js,mjs}": [
+      "eslint --fix --max-warnings 0",
+      "prettier --write"
+    ],
+    "*.{json,md}": "prettier --write"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.3.0",
+    "@commitlint/config-conventional": "^20.3.0",
+    "@eslint/js": "^9.39.1",
+    "@faker-js/faker": "^10.1.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/helmet": "^0.0.48",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^24.7.2",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^4.0.16",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "jiti": "^2.6.1",
+    "lint-staged": "^16.2.7",
+    "mongodb-memory-server": "^11.0.1",
+    "prettier": "^3.7.4",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "supertest": "^7.1.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.49.0",
+    "vitest": "^4.0.16"
+  },
+  "dependencies": {
+    "@types/multer": "^2.0.0",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.65.1",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "i18next": "^25.7.1",
+    "i18next-fs-backend": "^2.6.1",
+    "i18next-http-middleware": "^3.9.0",
+    "ioredis": "^5.8.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.19.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "rate-limiter-flexible": "^9.0.0",
+    "uuid": "^13.0.0",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^4.1.12"
+  },
+  "type": "module"
+}

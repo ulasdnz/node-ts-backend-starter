@@ -1,0 +1,46 @@
+{
+  "greeting": "Merhaba",
+  "welcome_message": "Hoşgeldiniz",
+  "validation": {
+    "email_invalid": "Geçersiz e-posta formatı",
+    "email_required": "E-posta gereklidir",
+    "name_min": "İsim en az 2 karakter olmalıdır",
+    "name_max": "İsim en fazla 24 karakter olmalıdır",
+    "name_required": "İsim gereklidir",
+    "surname_required": "Soyisim gereklidir",
+    "password_policy_min": "Şifre en az 8 karakter olmalıdır",
+    "password_policy_max": "Şifre en fazla 20 karakter olmalıdır",
+    "password_required": "Şifre gereklidir"
+  },
+  "auth": {
+    "missing_header": "Yetkilendirme başlığı eksik",
+    "invalid_token": "Geçersiz token",
+    "token_expired": "Token süresi doldu",
+    "invalid_credentials": "Geçersiz e-posta veya şifre",
+    "forbidden": "Bu işlem için yetkiniz yok."
+  },
+  "user": {
+    "email_in_use": "E-posta kullanımda",
+    "not_found": "Kullanıcı bulunamadı",
+    "avatar_required": "Avatar dosyası gereklidir"
+  },
+  "upload": {
+    "only_images": "Sadece resim yükleyebilirsiniz!"
+  },
+  "success": {
+    "register": "Kullanıcı başarıyla kaydedildi",
+    "login": "Giriş başarılı",
+    "login_restored": "Tekrar hoşgeldiniz! Hesabınız geri yüklendi.",
+    "delete": "Kullanıcı başarıyla silindi. {{days}} gün içinde kalıcı olarak silinecektir.",
+    "update": "Kullanıcı başarıyla güncellendi",
+    "avatar_update": "Avatar başarıyla güncellendi",
+    "get": "Kullanıcı başarıyla alındı",
+    "get_all": "Kullanıcılar başarıyla alındı"
+  },
+  "error": {
+    "unexpected": "Beklenmedik bir hata oluştu.",
+    "validation_failed": "Doğrulama başarısız.",
+    "duplicate_entry": "Bu {{field}} zaten kullanımda.",
+    "rate_limit_exceeded": "Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin."
+  }
+}
