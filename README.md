@@ -18,8 +18,8 @@ could be added in the future.
 
 ## Installation & Running
 
-- `git clone <repository-url>`
-- `cd <project-folder>`
+- `git clone https://github.com/ulasdnz/node-ts-backend-starter.git`
+- `cd node-ts-backend-starter`
 - `npm install`
 - Prepare the environment variables by generating `.env` file just as `.example.env` file
 - `npm run dev` (for development) or `npm start` (for production)
