@@ -1,0 +1,4 @@
+# Store and check out every text file with LF line endings.
+# Prettier enforces LF; without this, Windows checkouts with core.autocrlf=true
+# produce CRLF files that fail the `prettier/prettier` ESLint rule.
+* text=auto eol=lf
