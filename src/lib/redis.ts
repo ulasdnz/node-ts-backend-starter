@@ -7,14 +7,15 @@ import { logger } from './logger.js';
  * What a connection is used for decides how it behaves while Redis is unreachable:
  * - `default`: the request path (cache, rate limiting, probes). Commands fail at once instead of
  *   queueing, so a Redis outage degrades requests rather than hanging them.
- * - `bullmq-producer`: enqueueing jobs. Also fails fast, so the caller can report the failure.
+ * - `bullmq-producer`: enqueueing jobs. Also fails fast, so the caller can report the failure, and
+ *   a command without an answer times out, as with a Redis that holds the socket but stopped replying.
  * - `bullmq-worker`: BullMQ's blocking connections, which must retry forever (a BullMQ requirement).
  */
 export type RedisRole = 'default' | 'bullmq-producer' | 'bullmq-worker';
 
 const ROLE_OPTIONS: Record<RedisRole, RedisOptions> = {
   default: { enableOfflineQueue: false, maxRetriesPerRequest: 1, commandTimeout: 1000 },
-  'bullmq-producer': { enableOfflineQueue: false },
+  'bullmq-producer': { enableOfflineQueue: false, commandTimeout: 2000 },
   'bullmq-worker': { enableOfflineQueue: true, maxRetriesPerRequest: null },
 };
 
@@ -69,6 +70,8 @@ export const createRedisClient = (name: string, role: RedisRole = 'default'): Re
     logger.info('Redis client ready', { event: 'redis.client.ready', client: name });
   });
 
+  // A client that ended will not reconnect; only live clients need closing at shutdown
+  client.once('end', () => clients.delete(client));
   clients.add(client);
   return client;
 };

@@ -24,16 +24,31 @@ const workers: Worker[] = [];
 /**
  * The queue named `name`, created on first use with the default job options, on a producer
  * connection that fails fast while Redis is unreachable. Nothing connects at import time.
+ *
+ * BullMQ keeps the outcome of a queue's first connection attempt for good: a queue that could not
+ * reach Redis then fails every call, even once Redis is back. Such a queue is closed and forgotten,
+ * so the next call builds a fresh one. initJobs connects the long-lived queues at startup.
  */
 export const getQueue = <T extends TracedJobData>(name: string): Queue<T> => {
-  let queue = queues.get(name);
-  if (!queue) {
-    queue = new Queue(name, {
-      connection: createRedisClient(`${name}-queue`, 'bullmq-producer'),
-      defaultJobOptions: DEFAULT_JOB_OPTIONS,
+  const existing = queues.get(name);
+  if (existing) return existing as Queue<T>;
+
+  const connection = createRedisClient(`${name}-queue`, 'bullmq-producer');
+  const queue = new Queue(name, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS });
+  queue.on('error', (error) => {
+    logger.error('Job queue error', {
+      event: 'job.queue.error',
+      queue: name,
+      error: error.message,
     });
-    queues.set(name, queue);
-  }
+  });
+  queue.waitUntilReady().catch(() => {
+    if (queues.get(name) === queue) queues.delete(name);
+    void queue.close().catch(() => undefined);
+    connection.disconnect();
+  });
+
+  queues.set(name, queue);
   return queue as Queue<T>;
 };
 
@@ -125,15 +140,46 @@ const closeAll = async (label: string, closing: Promise<void>[]): Promise<unknow
   return failures;
 };
 
+// Well inside SHUTDOWN_TIMEOUT_MS, so the hooks after this one still run
+const WORKER_CLOSE_TIMEOUT_MS = 5000;
+
+/**
+ * A graceful close waits for active jobs, and finishing a job takes Redis. While Redis is down that
+ * wait would run into the shutdown deadline, so it is bounded and the worker is then closed by
+ * force; its unfinished jobs are picked up again as stalled jobs.
+ */
+const closeWorker = async (worker: Worker, timeoutMs: number): Promise<void> => {
+  const graceful = worker.close();
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<'timed-out'>((resolve) => {
+    timer = setTimeout(() => resolve('timed-out'), timeoutMs);
+  });
+
+  const outcome = await Promise.race([graceful.then(() => 'closed' as const), deadline]).finally(
+    () => clearTimeout(timer),
+  );
+  if (outcome === 'closed') return;
+
+  graceful.catch(() => undefined);
+  logger.warn('Worker did not stop in time, closing it by force', {
+    event: 'job.worker.close_forced',
+    queue: worker.name,
+    timeoutMs,
+  });
+  await worker.close(true);
+};
+
 /**
  * Closes workers first, which lets their active jobs finish, then the queues. Throws once
  * everything has had its chance to close if anything failed to.
  */
-export const closeJobQueues = async (): Promise<void> => {
+export const closeJobQueues = async ({
+  workerCloseTimeoutMs = WORKER_CLOSE_TIMEOUT_MS,
+}: { workerCloseTimeoutMs?: number } = {}): Promise<void> => {
   const failures = [
     ...(await closeAll(
       'workers',
-      workers.splice(0).map((worker) => worker.close()),
+      workers.splice(0).map((worker) => closeWorker(worker, workerCloseTimeoutMs)),
     )),
     ...(await closeAll(
       'queues',

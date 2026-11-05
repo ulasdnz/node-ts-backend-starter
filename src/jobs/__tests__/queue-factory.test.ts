@@ -12,17 +12,32 @@ import {
   withTraceId,
 } from '../queue-factory.js';
 
-const bullmq = vi.hoisted(() => ({ closed: [] as string[] }));
+const bullmq = vi.hoisted(() => ({
+  closed: [] as string[],
+  // The next queue's first connection attempt fails
+  failNextQueueStart: false,
+  // A worker's graceful close never finishes, as with jobs stuck while Redis is down
+  hangGracefulClose: false,
+}));
 
 // Stand-ins that record what the factory does, without Redis
 vi.mock('bullmq', async () => {
   const { EventEmitter: Emitter } = await import('node:events');
 
-  class Queue {
+  class Queue extends Emitter {
+    private readonly ready: Promise<void>;
+
     constructor(
       readonly name: string,
       readonly opts: Record<string, unknown>,
-    ) {}
+    ) {
+      super();
+      this.ready = bullmq.failNextQueueStart
+        ? Promise.reject(new Error('Connection is closed.'))
+        : Promise.resolve();
+      bullmq.failNextQueueStart = false;
+    }
+    waitUntilReady = () => this.ready;
     close = vi.fn(async () => {
       bullmq.closed.push(`queue:${this.name}`);
     });
@@ -36,15 +51,18 @@ vi.mock('bullmq', async () => {
     ) {
       super();
     }
-    close = vi.fn(async () => {
-      bullmq.closed.push(`worker:${this.name}`);
+    close = vi.fn(async (force = false) => {
+      if (bullmq.hangGracefulClose && !force) return new Promise<void>(() => {});
+      bullmq.closed.push(force ? `worker:${this.name}:forced` : `worker:${this.name}`);
     });
   }
 
   return { Queue, Worker };
 });
 
-vi.mock('../../lib/redis.js', () => ({ createRedisClient: vi.fn(() => ({})) }));
+vi.mock('../../lib/redis.js', () => ({
+  createRedisClient: vi.fn(() => ({ disconnect: vi.fn() })),
+}));
 
 const jobOf = (data: Record<string, unknown>, overrides: Partial<Job> = {}) =>
   ({
@@ -57,6 +75,7 @@ const jobOf = (data: Record<string, unknown>, overrides: Partial<Job> = {}) =>
   }) as unknown as Job<{ traceId?: string }>;
 
 afterEach(async () => {
+  bullmq.hangGracefulClose = false;
   await closeJobQueues();
   bullmq.closed.length = 0;
   vi.restoreAllMocks();
@@ -112,6 +131,32 @@ describe('getQueue', () => {
       (queue as unknown as { opts: { defaultJobOptions: unknown } }).opts.defaultJobOptions,
     ).toBe(DEFAULT_JOB_OPTIONS);
   });
+
+  // BullMQ keeps the outcome of a queue's first connection attempt for good
+  it('replaces a queue whose first connection failed, so later calls can work again', async () => {
+    bullmq.failNextQueueStart = true;
+    const broken = getQueue('reports');
+    const client = (broken as unknown as { opts: { connection: { disconnect: () => void } } }).opts
+      .connection;
+
+    await expect(broken.waitUntilReady()).rejects.toThrow('Connection is closed.');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(getQueue('reports')).not.toBe(broken);
+    expect(broken.close).toHaveBeenCalled();
+    expect(client.disconnect).toHaveBeenCalled();
+  });
+
+  it('logs queue errors', () => {
+    const error = vi.spyOn(logger, 'error');
+
+    getQueue('reports').emit('error', new Error('READONLY'));
+
+    expect(error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: 'job.queue.error', queue: 'reports', error: 'READONLY' }),
+    );
+  });
 });
 
 describe('createWorker', () => {
@@ -151,5 +196,14 @@ describe('closeJobQueues', () => {
     await closeJobQueues();
 
     expect(bullmq.closed).toEqual(['worker:reports', 'queue:reports']);
+  });
+
+  it('closes a worker by force when its jobs do not finish in time', async () => {
+    bullmq.hangGracefulClose = true;
+    createWorker('reports', async () => undefined);
+
+    await closeJobQueues({ workerCloseTimeoutMs: 20 });
+
+    expect(bullmq.closed).toEqual(['worker:reports:forced']);
   });
 });

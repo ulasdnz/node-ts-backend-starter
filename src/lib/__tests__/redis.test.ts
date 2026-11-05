@@ -53,9 +53,26 @@ describe('buildRedisOptions', () => {
     expect(options).toMatchObject({ lazyConnect: true, enableOfflineQueue: false });
     expect(options).not.toHaveProperty('maxRetriesPerRequest');
   });
+
+  // Without a timeout, a Redis that accepts the connection but stops answering would hold a
+  // request, such as an account deletion, until the OS gives up on the socket
+  it('gives up on a producer command that gets no answer', () => {
+    expect(buildRedisOptions('bullmq-producer').commandTimeout).toBeGreaterThan(0);
+  });
 });
 
 describe('closeRedisClients', () => {
+  it('leaves alone a client that has already ended', async () => {
+    const client = createRedisClient('ended');
+    client.disconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    const disconnect = vi.spyOn(client, 'disconnect');
+
+    await closeRedisClients();
+
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
   it('closes every client it created, including ones that never connected', async () => {
     const clients = [createRedisClient('first'), createRedisClient('second', 'bullmq-worker')];
 
