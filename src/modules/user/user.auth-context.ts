@@ -4,22 +4,24 @@ import { cache } from '../../lib/cache.js';
 import { logger } from '../../lib/logger.js';
 import User from './user.model.js';
 
-const cacheKey = (userId: string): string => `auth:ctx:${userId}`;
+// The version in the key retires contexts cached in an older shape the moment a deploy changes it
+const cacheKey = (userId: string): string => `auth:ctx:v2:${userId}`;
 
-/** The user's current role, activation and password change time; null when the user is gone. */
+/** The user's current role, activation and token version; null when the user is gone. */
 export const resolveAuthContext = (userId: string): Promise<AuthContext | null> =>
   cache.wrap(cacheKey(userId), config.AUTH_CONTEXT_CACHE_TTL_SECONDS, async () => {
-    const user = await User.findById(userId).select('role isActivated passwordChangedAt').lean();
+    const user = await User.findById(userId).select('role isActivated +tokenVersion').lean();
     if (!user) return null;
 
     return {
       role: user.role,
       isActivated: user.isActivated !== false,
-      passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
+      // Users stored before token versions existed are on the first one
+      tokenVersion: user.tokenVersion ?? 0,
     };
   });
 
-/** Call after any change to a user's role, activation, password or existence. */
+/** Call after any change to a user's role, activation, token version or existence. */
 export const invalidateAuthContext = async (userId: string): Promise<void> => {
   if (!(await cache.del(cacheKey(userId)))) {
     // The stale context expires within AUTH_CONTEXT_CACHE_TTL_SECONDS, but a revocation that does not

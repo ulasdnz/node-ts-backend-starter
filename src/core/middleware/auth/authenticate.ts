@@ -7,8 +7,8 @@ import { setUserId } from '../request-context.js';
 export interface AuthContext {
   role: string;
   isActivated: boolean;
-  /** ISO timestamp; tokens issued before it are revoked. */
-  passwordChangedAt: string | null;
+  /** Tokens carry the version they were issued under; a token of any other version is revoked. */
+  tokenVersion: number;
 }
 
 export interface AuthenticateOptions {
@@ -19,7 +19,7 @@ export interface AuthenticateOptions {
 
 const BEARER_PREFIX = 'Bearer ';
 
-const verifyToken = (token: string, secret: string): { userId: string; issuedAt: number } => {
+const verifyToken = (token: string, secret: string): { userId: string; tokenVersion: number } => {
   let payload: string | jwt.JwtPayload;
   try {
     payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
@@ -29,10 +29,13 @@ const verifyToken = (token: string, secret: string): { userId: string; issuedAt:
     throw new CustomError(401, 'auth.invalid_token');
   }
 
-  if (typeof payload === 'string' || typeof payload.sub !== 'string' || !payload.iat) {
+  if (typeof payload === 'string' || typeof payload.sub !== 'string') {
     throw new CustomError(401, 'auth.invalid_token');
   }
-  return { userId: payload.sub, issuedAt: payload.iat };
+  const version: unknown = payload.ver;
+  if (typeof version !== 'number') throw new CustomError(401, 'auth.invalid_token');
+
+  return { userId: payload.sub, tokenVersion: version };
 };
 
 /**
@@ -47,16 +50,14 @@ export const createAuthenticate =
       const header = req.headers.authorization;
       if (!header?.startsWith(BEARER_PREFIX)) throw new CustomError(401, 'auth.missing_token');
 
-      const { userId, issuedAt } = verifyToken(header.slice(BEARER_PREFIX.length), jwtSecret);
+      const { userId, tokenVersion } = verifyToken(header.slice(BEARER_PREFIX.length), jwtSecret);
       const context = await resolveAuthContext(userId);
       if (!context) throw new CustomError(401, 'auth.invalid_token');
 
-      // JWT timestamps have one-second precision, so the change time is compared in whole seconds.
-      // A token issued earlier within that same second stays valid; one second is the floor.
-      const changedAt = context.passwordChangedAt
-        ? Math.floor(Date.parse(context.passwordChangedAt) / 1000)
-        : 0;
-      if (issuedAt < changedAt) throw new CustomError(401, 'auth.invalid_token');
+      // Revocation moves the user to a new version instead of comparing times, which have
+      // one-second precision in a JWT: every token issued before it stops working, even one issued
+      // within the same second
+      if (tokenVersion !== context.tokenVersion) throw new CustomError(401, 'auth.invalid_token');
 
       if (!context.isActivated) throw new CustomError(403, 'auth.account_disabled');
 

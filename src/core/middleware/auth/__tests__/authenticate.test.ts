@@ -12,13 +12,14 @@ const USER_ID = '64b7f0c2a1b2c3d4e5f60718';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
+// Tokens carry the token version they were issued under; 0 unless a test says otherwise
 const tokenFor = (payload: object = {}, options: SignOptions = {}) =>
-  jwt.sign(payload, SECRET, { algorithm: 'HS256', subject: USER_ID, ...options });
+  jwt.sign({ ver: 0, ...payload }, SECRET, { algorithm: 'HS256', subject: USER_ID, ...options });
 
 const contextOf = (overrides: Partial<AuthContext> = {}): AuthContext => ({
   role: 'user',
   isActivated: true,
-  passwordChangedAt: null,
+  tokenVersion: 0,
   ...overrides,
 });
 
@@ -85,29 +86,34 @@ describe('createAuthenticate', () => {
     expect(res.body.error.code).toBe('auth.invalid_token');
   });
 
-  it('rejects tokens issued before the last password change', async () => {
-    const changedAt = new Date().toISOString();
-
+  // A password change or an account restore moves the user to the next version. Tokens of an
+  // older version are revoked however recently they were issued, the change's own second included.
+  it('rejects a token of an older token version, however recent', async () => {
     const res = await getMe(
-      buildApp(vi.fn(() => Promise.resolve(contextOf({ passwordChangedAt: changedAt })))),
-      tokenFor({ iat: nowSeconds() - 60 }),
+      buildApp(vi.fn(() => Promise.resolve(contextOf({ tokenVersion: 1 })))),
+      tokenFor({ ver: 0, iat: nowSeconds() + 1 }),
     );
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('auth.invalid_token');
   });
 
-  it('accepts a token issued in the same second as the password change', async () => {
-    const changedAt = new Date();
-
+  it('accepts a token of the current token version', async () => {
     const res = await getMe(
-      buildApp(
-        vi.fn(() => Promise.resolve(contextOf({ passwordChangedAt: changedAt.toISOString() }))),
-      ),
-      tokenFor({ iat: Math.floor(changedAt.getTime() / 1000) }),
+      buildApp(vi.fn(() => Promise.resolve(contextOf({ tokenVersion: 3 })))),
+      tokenFor({ ver: 3 }),
     );
 
     expect(res.status).toBe(200);
+  });
+
+  it('rejects a token without a token version', async () => {
+    const unversioned = jwt.sign({}, SECRET, { algorithm: 'HS256', subject: USER_ID });
+
+    const res = await getMe(buildApp(), unversioned);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('auth.invalid_token');
   });
 
   it('rejects deactivated accounts with 403 auth.account_disabled', async () => {

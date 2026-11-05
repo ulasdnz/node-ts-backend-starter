@@ -62,10 +62,10 @@ const registerAdmin = async (email: string): Promise<string> => {
   return signIn(email);
 };
 
-// Revocation compares whole seconds, so a token from the same second as a password change stays
-// valid by design. Tests that expect revocation use a token issued earlier.
-const tokenIssuedSecondsAgo = (userId: string, seconds: number): string =>
-  jwt.sign({ iat: Math.floor(Date.now() / 1000) - seconds }, config.JWT_SECRET, {
+// A token of the given version, stamped one second ahead: a comparison of issue times against the
+// change time could never reject it, so only the version can
+const tokenOfVersion = (userId: string, version: number): string =>
+  jwt.sign({ ver: version, iat: Math.floor(Date.now() / 1000) + 1 }, config.JWT_SECRET, {
     algorithm: 'HS256',
     subject: userId,
     expiresIn: '1h',
@@ -224,14 +224,44 @@ describe('login', () => {
       expect.objectContaining({ event: 'user.purge.cancel_failed' }),
     );
   });
+
+  it('does not bring back the tokens of an account deleted and then restored', async () => {
+    await register('returning@example.com');
+    const beforeDeletion = await signIn('returning@example.com');
+    await request(app).delete('/api/v1/users/me').set('Authorization', `Bearer ${beforeDeletion}`);
+
+    const restored = await login('returning@example.com');
+
+    expect(restored.status).toBe(200);
+    expect((await getMe(restored.body.data.token as string)).status).toBe(200);
+    expect((await getMe(beforeDeletion)).status).toBe(401);
+  });
+
+  it('records the restore in the audit log as done by the user', async () => {
+    const { body } = await register('owner@example.com');
+    const userId = body.data._id as string;
+    await User.softDeleteById(userId);
+
+    await login('owner@example.com');
+    await flushAuditLogs();
+
+    const restore = await AuditLog.findOne({
+      model: 'User',
+      documentId: userId,
+      operation: 'update',
+      'changes.deleted': false,
+    }).lean();
+    expect(restore?.actor?.userId).toBe(userId);
+  });
 });
 
 describe('password change', () => {
   const NEW_PASSWORD = 'NewPassword456!';
 
-  it('changes the password, returns a working token and revokes the old one', async () => {
+  it('changes the password, returns a working token and revokes every older one', async () => {
     const { body } = await register('rotate@example.com');
-    const oldToken = tokenIssuedSecondsAgo(body.data._id as string, 60);
+    const oldToken = await signIn('rotate@example.com');
+    const sameSecondToken = tokenOfVersion(body.data._id as string, 0);
     // Caches the auth context, which the change has to invalidate
     expect((await getMe(oldToken)).status).toBe(200);
 
@@ -244,6 +274,7 @@ describe('password change', () => {
     expect(res.body.message).toEqual(expect.any(String));
     expect((await getMe(res.body.data.token as string)).status).toBe(200);
     expect((await getMe(oldToken)).status).toBe(401);
+    expect((await getMe(sameSecondToken)).status).toBe(401);
     expect((await login('rotate@example.com', PASSWORD)).status).toBe(401);
     expect((await login('rotate@example.com', NEW_PASSWORD)).status).toBe(200);
   });

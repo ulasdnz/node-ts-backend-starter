@@ -1,4 +1,5 @@
 import CustomError from '../../core/errors/index.js';
+import { setUserId } from '../../core/middleware/request-context.js';
 import { detectImageExtension } from '../../core/middleware/upload.js';
 import type { MongoError } from '../../core/types/mongo.types.js';
 import { cancelPurge, schedulePurge } from '../../jobs/cleanup/purge.queue.js';
@@ -24,7 +25,7 @@ const USER_SORT_FIELDS = ['createdAt', 'email', 'name', 'surname'];
 export async function registerUser(data: RegisterInput): Promise<UserResponse> {
   try {
     const user = await User.create({ ...data, password: await hashPassword(data.password) });
-    const { password: _password, ...response } = user.toObject();
+    const { password: _password, tokenVersion: _tokenVersion, ...response } = user.toObject();
     return response;
   } catch (error) {
     // The unique index decides, so two simultaneous sign-ups with one email cannot both succeed.
@@ -37,7 +38,9 @@ export async function registerUser(data: RegisterInput): Promise<UserResponse> {
 export async function loginUser(data: LoginInput, ip: string): Promise<AuthResponse> {
   await loginProtection.assertAllowed(data.email, ip);
 
-  const user = await User.findOne({ email: data.email }).withDeleted().select('+password');
+  const user = await User.findOne({ email: data.email })
+    .withDeleted()
+    .select('+password +tokenVersion');
   // Unknown emails cost the same bcrypt work, so timing does not reveal which emails exist
   const isValid = user
     ? await verifyPassword(data.password, user.password)
@@ -48,6 +51,8 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
     throw new CustomError(401, 'auth.invalid_credentials');
   }
   await loginProtection.recordSuccess(data.email, ip);
+  // From here on, logs and audit entries name the user who has just proved who they are
+  setUserId(user.id);
 
   if (!user.isActivated) {
     throw new CustomError(403, 'auth.account_disabled');
@@ -55,6 +60,8 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
 
   let wasRestored = false;
   if (user.deleted) {
+    // A new token version: the tokens from before the deletion do not come back with the account
+    user.tokenVersion += 1;
     await user.restore();
     try {
       await cancelPurge(user.id);
@@ -72,9 +79,9 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
     logger.info('Account restored on login', { event: 'user.account.restored', userId: user.id });
   }
 
-  const token = issueAccessToken(user.id);
+  const token = issueAccessToken(user.id, user.tokenVersion);
 
-  const { password: _password, ...userResponse } = user.toObject();
+  const { password: _password, tokenVersion: _tokenVersion, ...userResponse } = user.toObject();
 
   return {
     user: userResponse,
@@ -96,14 +103,23 @@ export async function changePassword(
     throw new CustomError(400, 'user.invalid_current_password');
   }
 
-  user.password = await hashPassword(newPassword);
-  // Every token issued before this second stops working
-  user.passwordChangedAt = new Date();
-  await user.save();
+  // One atomic update moves the user to the next token version, which revokes every token issued
+  // before; two changes at once cannot both hand out tokens of the same version
+  const updated = await User.findOneAndUpdate(
+    { _id: userId },
+    {
+      $set: { password: await hashPassword(newPassword), passwordChangedAt: new Date() },
+      $inc: { tokenVersion: 1 },
+    },
+    { returnDocument: 'after' },
+  ).select('+tokenVersion');
+  if (!updated) {
+    throw new CustomError(404, 'user.not_found');
+  }
   await invalidateAuthContext(userId);
 
-  // The caller's own token is one of them, so it gets a new one
-  return issueAccessToken(userId);
+  // The caller's own token is one of those revoked, so it gets a new one
+  return issueAccessToken(userId, updated.tokenVersion);
 }
 
 export async function deleteUser(userId: string): Promise<void> {

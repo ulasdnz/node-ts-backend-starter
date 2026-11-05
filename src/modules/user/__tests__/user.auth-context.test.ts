@@ -32,13 +32,20 @@ beforeEach(() => {
 
 describe('resolveAuthContext', () => {
   it('loads the auth context of an active user', async () => {
-    const user = await createUser({ role: 'admin' });
+    const user = await createUser({ role: 'admin', tokenVersion: 2 });
 
     await expect(resolveAuthContext(user.id)).resolves.toEqual({
       role: 'admin',
       isActivated: true,
-      passwordChangedAt: null,
+      tokenVersion: 2,
     });
+  });
+
+  it('treats a user stored before token versions existed as version 0', async () => {
+    const user = await createUser();
+    await User.collection.updateOne({ _id: user._id }, { $unset: { tokenVersion: '' } });
+
+    await expect(resolveAuthContext(user.id)).resolves.toMatchObject({ tokenVersion: 0 });
   });
 
   it('returns null for a soft-deleted user', async () => {

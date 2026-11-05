@@ -55,6 +55,12 @@ const userSchema = new Schema(
       default: true,
     },
     passwordChangedAt: Date,
+    // Moving to the next version revokes every token issued before (see issueAccessToken)
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
   },
   {
     timestamps: true,
