@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   softDeletePlugin,
   type SoftDeleteModel,
-} from '../../database/plugins/softDelete.plugin.js';
+} from '../../database/plugins/soft-delete.plugin.js';
 import { setupTestDatabase } from '../../test/helpers/database.js';
 import { paginate, paginationSchema, parseSort } from '../pagination.js';
 

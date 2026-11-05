@@ -165,7 +165,7 @@ src/
 │   │   ├── README.md                # Migration documentation
 │   │   └── 20260102205332-add-user-index.ts
 │   ├── plugins/
-│   │   └── softDelete.plugin.ts     # Mongoose soft delete plugin
+│   │   └── soft-delete.plugin.ts     # Mongoose soft delete plugin
 │   └── seeders/
 │       ├── index.ts                 # Seeder orchestrator
 │       └── user.seeder.ts           # User seed data
@@ -257,7 +257,7 @@ codebase.
 ## 🧩 Soft Delete Plugin (Mechanism)
 
 The soft-delete mechanism is implemented via a **custom Mongoose plugin** developed specifically for
-this project (`plugins/softDelete.plugin.ts`). The plugin is intentionally **opt-in and
+this project (`plugins/soft-delete.plugin.ts`). The plugin is intentionally **opt-in and
 model-scoped**. Applying it to a schema explicitly signals that:
 
 - Records must be recoverable

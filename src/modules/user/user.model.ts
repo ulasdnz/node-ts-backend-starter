@@ -4,7 +4,7 @@ import { auditLogPlugin } from '../../database/plugins/audit-log.plugin.js';
 import {
   type SoftDeleteModel,
   softDeletePlugin,
-} from '../../database/plugins/softDelete.plugin.js';
+} from '../../database/plugins/soft-delete.plugin.js';
 const { Schema, model } = mongoose;
 
 const userSchema = new Schema(

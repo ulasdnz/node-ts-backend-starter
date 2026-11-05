@@ -6,7 +6,7 @@ import {
   softDeletePlugin,
   type SoftDeleteDocument,
   type SoftDeleteModel,
-} from '../softDelete.plugin.js';
+} from '../soft-delete.plugin.js';
 
 interface ITestDoc extends SoftDeleteDocument {
   name: string;
