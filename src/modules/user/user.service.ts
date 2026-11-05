@@ -1,59 +1,63 @@
-import bcrypt from 'bcryptjs';
 import { config } from '../../config/index.js';
 import CustomError from '../../core/errors/index.js';
 import { detectImageExtension } from '../../core/middleware/upload.js';
+import type { MongoError } from '../../core/types/mongo.types.js';
 import { purgeQueue } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import { storage } from '../../lib/storage.js';
+import { loginProtection } from './login-protection.js';
+import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password.js';
+import { invalidateAuthContext } from './user.auth-context.js';
 import User, { type IUser } from './user.model.js';
 import { issueAccessToken } from './user.tokens.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type { LoginInput, RegisterInput, UserQueryInput } from './user.validators.js';
 
 export async function registerUser(data: RegisterInput): Promise<UserResponse> {
-  const existing = await User.findOne({ email: data.email }).withDeleted();
-  if (existing) {
-    throw new CustomError(409, 'user.email_in_use');
+  try {
+    const user = await User.create({ ...data, password: await hashPassword(data.password) });
+    const { password: _password, ...response } = user.toObject();
+    return response;
+  } catch (error) {
+    // The unique index decides, so two simultaneous sign-ups with one email cannot both succeed.
+    // Soft-deleted accounts keep their email until they are purged.
+    if ((error as MongoError).code === 11000) throw new CustomError(409, 'user.email_in_use');
+    throw error;
   }
-
-  const hashedPassword = await bcrypt.hash(data.password, 10);
-
-  const user = await User.create({
-    ...data,
-    password: hashedPassword,
-  });
-  const { password: _password, ...response } = user.toObject();
-
-  return response;
 }
 
-export async function loginUser(data: LoginInput): Promise<AuthResponse> {
+export async function loginUser(data: LoginInput, ip: string): Promise<AuthResponse> {
+  await loginProtection.assertAllowed(data.email, ip);
+
   const user = await User.findOne({ email: data.email }).withDeleted().select('+password');
-  if (!user) {
+  // Unknown emails cost the same bcrypt work, so timing does not reveal which emails exist
+  const isValid = user
+    ? await verifyPassword(data.password, user.password)
+    : await verifyAgainstDummyHash(data.password);
+
+  if (!user || !isValid) {
+    await loginProtection.recordFailure(data.email, ip);
     throw new CustomError(401, 'auth.invalid_credentials');
   }
+  await loginProtection.recordSuccess(data.email, ip);
 
-  const isValid = await bcrypt.compare(data.password, user.password);
-  if (!isValid) {
-    throw new CustomError(401, 'auth.invalid_credentials');
+  if (!user.isActivated) {
+    throw new CustomError(403, 'auth.account_disabled');
   }
 
   let wasRestored = false;
   if (user.deleted) {
     await user.restore();
 
-    const jobId = `purge-user-${user._id.toString()}`;
-    const job = await purgeQueue.getJob(jobId);
-    if (job) {
-      await job.remove();
-      logger.info(`Account restored, purge job cancelled for: ${user.email}`);
-    }
+    const job = await purgeQueue.getJob(`purge-user-${user.id}`);
+    if (job) await job.remove();
+    await invalidateAuthContext(user.id);
 
     wasRestored = true;
-    logger.info(`Account restored: ${user.email}`);
+    logger.info('Account restored on login', { event: 'user.account.restored', userId: user.id });
   }
 
-  const token = issueAccessToken(user._id.toString());
+  const token = issueAccessToken(user.id);
 
   const { password: _password, ...userResponse } = user.toObject();
 

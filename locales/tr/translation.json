@@ -7,9 +7,10 @@
     "name_required": "İsim gereklidir",
     "surname_required": "Soyisim gereklidir",
     "password_policy_min": "Şifre en az 8 karakter olmalıdır",
-    "password_policy_max": "Şifre en fazla 20 karakter olmalıdır",
+    "password_policy_max": "Şifre en fazla 64 karakter olmalıdır",
     "password_required": "Şifre gereklidir",
-    "field_not_allowed": "Bu alana izin verilmiyor."
+    "field_not_allowed": "Bu alana izin verilmiyor.",
+    "password_policy_bytes": "Şifre çok uzun. Daha az özel karakter kullanın."
   },
   "auth": {
     "invalid_token": "Geçersiz token",

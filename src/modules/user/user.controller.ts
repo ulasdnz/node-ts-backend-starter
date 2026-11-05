@@ -19,7 +19,7 @@ export async function login(
   req: Request,
   res: Response<SuccessResponse<Omit<AuthResponse, 'wasRestored'>>>,
 ) {
-  const { wasRestored, ...result } = await userService.loginUser(req.body);
+  const { wasRestored, ...result } = await userService.loginUser(req.body, req.ip ?? 'unknown');
 
   const messageKey = wasRestored ? 'success.login_restored' : 'success.login';
 
