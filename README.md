@@ -75,11 +75,13 @@ npm start
   request's user, trace id and IP, and sensitive fields masked.
 - **Background Jobs:** queues and workers built by one factory with retries, retention and trace id
   propagation, using **Redis** and **BullMQ**.
-- **Authentication & Authorization:** stateless **JWT**s that carry only the user id. Role and
-  account state come from a Redis-cached auth context, so a password change, a deactivation or a
-  deletion revokes tokens at once. Role-based access control on top.
+- **Authentication & Authorization:** stateless **JWT**s that carry only the user id and a token
+  version. Role and account state come from a Redis-cached auth context. A password change or an
+  account restore moves the user to a new token version, which revokes every older token at once,
+  and a deleted account's tokens stop working at once. Role-based access control on top.
 - **Login Protection:** consecutive failures lock an email and IP pair, a daily budget caps failures
-  per IP, and unknown emails cost the same bcrypt work as wrong passwords.
+  per IP, and unknown emails cost the same bcrypt work as wrong passwords. The current-password
+  check of a password change counts toward the same limits.
 - **Validation:** request body, params and query validated with **Zod**; errors name the field.
 - **Pagination:** page, limit and sort, with an allow list of sort fields and a stable order.
 - **Migrations:** tracked, locked against concurrent runs, and run as a deploy step that also builds
@@ -171,7 +173,8 @@ npm run seed
 
 This creates the admin `admin@example.com` and ten users (`user1@example.com` onwards) from a fixed
 faker seed, so every run yields the same accounts. They all sign in with `Password123!`. Seeding
-deletes every user first and refuses to run in production.
+deletes every user first, so it refuses to run in production, and refuses a `MONGO_URI` that points
+anywhere but this machine unless run as `npm run seed -- --allow-remote`.
 
 <br />
 
@@ -250,14 +253,18 @@ Errors follow one contract, described under
 | POST   | `/api/v1/auth/register` | Register a user                                              | —    |
 | POST   | `/api/v1/auth/login`    | Sign in and get a token; restores an account deleted earlier | —    |
 
-- A token is an HS256 JWT whose `sub` is the user id; it carries no role. Each request reads the
-  role and account state from a Redis-cached auth context (`AUTH_CONTEXT_CACHE_TTL_SECONDS`).
-- Tokens issued before the last password change stop working, and so do the tokens of deactivated or
-  deleted accounts. Each of those changes clears the cached context, so this happens at once.
+- A token is an HS256 JWT whose `sub` is the user id and whose `ver` is the user's token version; it
+  carries no role. Each request reads the role, the account state and the current token version from
+  a Redis-cached auth context (`AUTH_CONTEXT_CACHE_TTL_SECONDS`).
+- A password change or an account restore moves the user to the next token version, which revokes
+  every token issued before, even one issued within the same second. Deleting an account revokes its
+  tokens too. Each of these clears the cached context, so it applies at once. A role or activation
+  change made directly in the database applies once the cached context expires.
 - Sign-in answers an unknown email and a wrong password the same way, in the same time. After
   `LOGIN_MAX_CONSECUTIVE_FAILS` failures in a row, an email and IP pair is locked for
   `LOGIN_BLOCK_DURATION_SECONDS` (`429` with `Retry-After`). Each IP also has a daily failure
-  budget.
+  budget. The current-password check of `PATCH /api/v1/users/me/password` counts toward the same
+  lock and budget, so a stolen token cannot be used to guess the password.
 - Passwords are 8 to 64 characters and at most 72 bytes, which is as much as bcrypt reads.
 
 ### User Management
@@ -403,13 +410,13 @@ This results in a system that is:
            ▼
 ┌─────────────────────┐
 │  2. QUEUE JOB       │  BullMQ job scheduled with configurable delay
-│     (Retention)     │  → Default: USER_DELETION_RETENTION_DAYS (14d)
+│     (Retention)     │  → Default: USER_DELETION_RETENTION_DAYS (30d)
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
 │  3. HARD DELETE     │  Worker-verified purge
-│     (Final)         │  → double-checked
+│     (Final)         │  → double-checked; audit data and avatar erased
 └─────────────────────┘
 ```
 
@@ -483,17 +490,22 @@ A configurable grace period allows:
 Before hard deletion, the worker re-validates all conditions:
 
 ```ts
-await User.collection.deleteOne({
-  _id: ObjectId(userId),
+const purged = await User.collection.findOneAndDelete({
+  _id: new Types.ObjectId(userId),
   deleted: true,
   deletedAt: { $lte: retentionDate },
 });
 ```
 
+Once the user is gone, the purge erases what else holds their data. The audit log keeps its entries
+but loses the changes recorded on the account and the IP of every action the user took. An uploaded
+avatar is removed. A retry that finds the user already deleted erases them again, which is safe.
+
 ### Daily Fail-Safe Scanner
 
-A scheduled job scans for eligible users daily and enqueues idempotent purge jobs. This guarantees
-cleanup even after outages or missed delays.
+A scheduled job scans for eligible users daily and enqueues purge jobs for them, which catches
+purges that were never scheduled or got lost in an outage. Purge jobs have fixed ids, so a purge
+that failed all its attempts is enqueued again only once its failed job expires, after 7 days.
 
 ### Automatic Recovery
 
@@ -740,7 +752,8 @@ The system enforces the following guarantees in production:
   - full stack trace
 - Logs are one JSON object per line on stdout, with a `severity` that log platforms understand, and
   suitable for aggregation and alerting
-- Every change to an audited document records who made it and under which trace id
+- Every create, `save()`, `findOneAndUpdate()` and `findOneAndDelete()` on an audited model records
+  who made it and under which trace id; bulk writes such as `updateMany()` are not audited
 
 These guarantees ensure the system remains **debuggable under failure** without compromising
 security or leaking sensitive implementation details.

@@ -23,9 +23,9 @@ npm run migration:create backfill-user-locale
 2. **Apply.** Files are applied in name order, which is creation order thanks to the timestamp
    prefix. Each applied migration is recorded in the `migrations` collection by name, without its
    extension, so the same history serves `.ts` and compiled `.js` runs.
-3. **Index.** `createIndexes()` runs for every model. It only adds indexes; dropping one takes a
-   migration (see `20261105120100-drop-legacy-user-indexes.ts`).
-4. **Unlock.** The lock is released whether the run succeeded or not.
+3. **Unlock.** The lock is released whether the migrations succeeded or not.
+4. **Index.** Once the migrations succeeded, `createIndexes()` runs for every model. It only adds
+   indexes; dropping one takes a migration (see `20261105120100-drop-legacy-user-indexes.ts`).
 
 ## Writing a migration
 
