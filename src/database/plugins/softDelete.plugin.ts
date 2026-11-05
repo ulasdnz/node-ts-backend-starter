@@ -117,7 +117,7 @@ export function softDeletePlugin(schema: Schema) {
         deleted: true,
         deletedAt: new Date(),
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
   };
 
@@ -128,7 +128,7 @@ export function softDeletePlugin(schema: Schema) {
         deleted: false,
         deletedAt: null,
       },
-      { new: true, withDeleted: true },
+      { returnDocument: 'after', withDeleted: true },
     );
   };
 
