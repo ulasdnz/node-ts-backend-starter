@@ -1,34 +1,41 @@
 import mongoose from 'mongoose';
+import type { EventEmitter } from 'node:events';
+import type { Logger } from 'winston';
 import { config } from '../../config/index.js';
 import { logger } from '../../lib/logger.js';
+import { connectDB } from '../../utils/db.js';
+import { isShuttingDown } from '../shutdown.js';
 
-export const initMongoose = async (): Promise<void> => {
-  try {
-    await mongoose.connect(config.MONGO_URI, {
-      autoIndex: config.NODE_ENV === 'development',
-      serverSelectionTimeoutMS: 5000,
-    });
-    logger.info('MongoDB connected successfully');
+interface WatchOptions {
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>;
+  isShuttingDown: () => boolean;
+}
 
-    setupMongooseEventListeners();
-  } catch (error) {
-    logger.error('MongoDB connection failed', {
-      error: error instanceof Error ? error.message : error,
-    });
-    throw error;
-  }
-};
-
-function setupMongooseEventListeners(): void {
-  mongoose.connection.on('disconnected', () => {
-    logger.warn('MongoDB disconnected unexpectedly');
+/**
+ * Logs what happens to the connection after it opened. The driver reconnects on its own, so a lost
+ * connection is a warning, and the one a shutdown closes on purpose is not worth one.
+ */
+export const watchConnection = (
+  connection: EventEmitter,
+  { logger: log, isShuttingDown: shuttingDown }: WatchOptions,
+): void => {
+  connection.on('disconnected', () => {
+    if (shuttingDown()) return;
+    log.warn('MongoDB disconnected, the driver keeps retrying', { event: 'mongodb.disconnected' });
   });
-  mongoose.connection.on('reconnected', () => {
-    logger.info('MongoDB reconnected');
+  connection.on('reconnected', () => {
+    log.info('MongoDB reconnected', { event: 'mongodb.reconnected' });
   });
-  mongoose.connection.on('error', (error: unknown) => {
-    logger.error('MongoDB connection error', {
+  connection.on('error', (error: unknown) => {
+    log.error('MongoDB connection error', {
+      event: 'mongodb.error',
       error: error instanceof Error ? error.message : String(error),
     });
   });
-}
+};
+
+/** Connects to MongoDB; indexes are built on start in development only. */
+export const initMongoose = async (): Promise<void> => {
+  await connectDB({ autoIndex: config.NODE_ENV === 'development' });
+  watchConnection(mongoose.connection, { logger, isShuttingDown });
+};
