@@ -84,7 +84,7 @@ export const createHttpLogger =
 
       const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e4) / 100;
 
-      logger.http('HTTP request completed', {
+      logger.info('HTTP request completed', {
         event: 'http.request.completed',
         method: req.method,
         route: routePatternOf(req),

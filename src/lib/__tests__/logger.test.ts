@@ -1,7 +1,8 @@
 import express, { Router } from 'express';
+import { Writable } from 'node:stream';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
-import type { Logger } from 'winston';
+import winston, { type Logger } from 'winston';
 import { runInContext } from '../../core/middleware/request-context.js';
 import { createHttpLogger, createLogger, developmentFormat, productionFormat } from '../logger.js';
 
@@ -74,20 +75,44 @@ describe('createLogger', () => {
 });
 
 describe('createHttpLogger', () => {
+  it('emits request logs at the default info level', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        lines.push(chunk.toString());
+        callback();
+      },
+    });
+    const logger = winston.createLogger({
+      level: 'info',
+      format: winston.format.json(),
+      transports: [new winston.transports.Stream({ stream })],
+    });
+    const app = express();
+    app.use(createHttpLogger(logger));
+    app.get('/ping', (_req, res) => {
+      res.send('pong');
+    });
+
+    await request(app).get('/ping');
+
+    await vi.waitFor(() => expect(lines.join('')).toContain('http.request.completed'));
+  });
+
   it('records the route pattern, status and duration', async () => {
-    const http = vi.fn();
+    const info = vi.fn();
     const router = Router();
     router.get('/items/:id', (_req, res) => {
       res.json({ ok: true });
     });
     const app = express();
-    app.use(createHttpLogger({ http } as unknown as Logger));
+    app.use(createHttpLogger({ info } as unknown as Logger));
     app.use('/api', router);
 
     await request(app).get('/api/items/42?token=secret');
 
     await vi.waitFor(() =>
-      expect(http).toHaveBeenCalledWith(
+      expect(info).toHaveBeenCalledWith(
         'HTTP request completed',
         expect.objectContaining({
           event: 'http.request.completed',
@@ -101,14 +126,14 @@ describe('createHttpLogger', () => {
   });
 
   it('logs unmatched paths without their query string', async () => {
-    const http = vi.fn();
+    const info = vi.fn();
     const app = express();
-    app.use(createHttpLogger({ http } as unknown as Logger));
+    app.use(createHttpLogger({ info } as unknown as Logger));
 
     await request(app).get('/missing?token=secret');
 
     await vi.waitFor(() =>
-      expect(http).toHaveBeenCalledWith(
+      expect(info).toHaveBeenCalledWith(
         'HTTP request completed',
         expect.objectContaining({ route: '/missing', statusCode: 404 }),
       ),
