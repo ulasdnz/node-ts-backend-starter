@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { withTimeout } from '../../utils/timeout.js';
 import { buildRedisOptions, closeRedisClients, createRedisClient } from '../redis.js';
 
 describe('buildRedisOptions', () => {
@@ -34,5 +35,25 @@ describe('closeRedisClients', () => {
     await closeRedisClients();
 
     expect(clients.map((client) => client.status)).toEqual(['end', 'end']);
+  });
+
+  it('does not hang on a client that is still trying to reach Redis', async () => {
+    // The test REDIS_URL points at a port nothing listens on
+    const client = createRedisClient('unreachable', 'bullmq-worker');
+    const reconnects = vi.fn();
+    client.on('reconnecting', reconnects);
+    client.connect().catch(() => {});
+    await vi.waitFor(() => expect(reconnects).toHaveBeenCalled(), { timeout: 10_000 });
+    // Queued until Redis comes back, which it never does
+    client.get('queued').catch(() => {});
+
+    await expect(withTimeout(closeRedisClients(), 3000, 'closeRedisClients')).resolves.toBe(
+      undefined,
+    );
+
+    // Closed for good: no reconnect attempt follows, well past the next retry delay
+    const attemptsAtClose = reconnects.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(reconnects).toHaveBeenCalledTimes(attemptsAtClose);
   });
 });

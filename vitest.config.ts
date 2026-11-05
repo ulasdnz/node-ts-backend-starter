@@ -32,10 +32,10 @@ export default defineConfig({
     },
     env: {
       NODE_ENV: 'test',
-      // Placeholders that satisfy config validation; tests reach MongoDB through setupTestDatabase
-      // and never open a Redis connection.
+      // Placeholders that satisfy config validation. Tests reach MongoDB through setupTestDatabase,
+      // and nothing listens on the Redis port, so no test can touch a developer's local Redis.
       MONGO_URI: 'mongodb://127.0.0.1:27017/unused',
-      REDIS_URL: 'redis://127.0.0.1:6379',
+      REDIS_URL: 'redis://127.0.0.1:1',
       JWT_SECRET: 'test-only-jwt-secret-of-at-least-32-chars',
     },
   },

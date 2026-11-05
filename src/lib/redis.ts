@@ -82,15 +82,22 @@ export const connectRedis = async (timeoutMs = 10_000): Promise<void> => {
   );
 };
 
+const QUIT_TIMEOUT_MS = 1000;
+
+/**
+ * Closes every registered client. A connected client quits gracefully, flushing its pending replies;
+ * any other client is dropped at once, because quit() would queue behind commands that cannot run
+ * until Redis is back and so never settle.
+ */
 export const closeRedisClients = async (): Promise<void> => {
   await Promise.allSettled(
     [...clients].map(async (client) => {
-      if (client.status === 'wait' || client.status === 'end') {
+      if (client.status !== 'ready') {
         client.disconnect();
         return;
       }
       try {
-        await client.quit();
+        await withTimeout(client.quit(), QUIT_TIMEOUT_MS, 'Redis quit');
       } catch {
         client.disconnect();
       }
