@@ -4,12 +4,15 @@ import express, { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { config } from '../../config/index.js';
 import { httpLogger, logger } from '../../lib/logger.js';
+import { redisClient } from '../../lib/redis.js';
+import { mongoProbe, redisProbe } from '../../modules/health/health.probes.js';
+import { createHealthRouter } from '../../modules/health/health.routes.js';
 import { createErrorHandler, notFoundHandler } from '../middleware/error-handler.js';
 import { rateLimiterMiddleware } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
+import { isShuttingDown } from '../shutdown.js';
 import { initI18n } from './i18n.js';
 
-import healthRoutes from '../../modules/health/health.routes.js';
 import userRoutes from '../../modules/user/user.routes.js';
 
 export const initExpress = async () => {
@@ -37,7 +40,13 @@ export const initExpress = async () => {
 
   app.use(rateLimiterMiddleware);
 
-  app.use(healthRoutes);
+  app.use(
+    createHealthRouter({
+      probes: [mongoProbe(), redisProbe(redisClient)],
+      logger,
+      isShuttingDown,
+    }),
+  );
 
   app.use('/api/v1', userRoutes);
 

@@ -1,61 +1,51 @@
 import { config } from './config/index.js';
+import { closeHttpServer, listen } from './core/http-server.js';
 import { initLoaders } from './core/loaders/index.js';
-import { initJobs, shutdownJobs } from './jobs/index.js';
+import { onShutdown, shutdown } from './core/shutdown.js';
 import { logger } from './lib/logger.js';
-import { closeRedisClients } from './lib/redis.js';
-import { disconnectDB } from './utils/db.js';
 
-const startServer = async (): Promise<void> => {
-  try {
-    const app = await initLoaders();
+const errorFields = (error: unknown) => ({
+  error: error instanceof Error ? error.message : String(error),
+  stack: error instanceof Error ? error.stack : undefined,
+});
 
-    await initJobs();
+const stop = (reason: string, exitCode?: number): Promise<void> =>
+  shutdown(reason, {
+    logger,
+    timeoutMs: config.SHUTDOWN_TIMEOUT_MS,
+    exit: (code) => process.exit(exitCode ?? code),
+  });
 
-    const server = app.listen(config.PORT, () => {
-      logger.info(`Server running on port ${config.PORT}`);
-    });
+const start = async (): Promise<void> => {
+  const app = await initLoaders();
+  const server = await listen(app, config.PORT);
+  onShutdown('http-server', () => closeHttpServer(server));
 
-    // Graceful shutdown function
-    const shutdown = async (signal?: NodeJS.Signals): Promise<void> => {
-      logger.info(`Received ${signal}. Gracefully shutting down...`);
-
-      server.close(async () => {
-        logger.info('Http Server closed');
-
-        try {
-          await shutdownJobs();
-          logger.info('Jobs/Workers shut down');
-          await Promise.all([disconnectDB(), closeRedisClients()]);
-          logger.info('Data connections (Mongo & Redis) closed');
-
-          process.exit(0);
-        } catch (err) {
-          logger.error('Error during shutdown cleanup', err);
-          process.exit(1);
-        }
-      });
-    };
-
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-  } catch (error) {
-    logger.error('Failed to start server', error);
-    process.exit(1);
-  }
+  logger.info('Server started', { event: 'server.started', port: config.PORT });
 };
 
+process.on('SIGTERM', () => void stop('SIGTERM'));
+process.on('SIGINT', () => void stop('SIGINT'));
+
+// The process state is unknown after either of these, so it exits instead of carrying on
 process.on('unhandledRejection', (reason: unknown) => {
-  if (reason instanceof Error) {
-    logger.error('Unhandled Promise Rejection:', reason.message, reason.stack);
-  } else {
-    logger.error('Unhandled Promise Rejection:', reason);
-  }
+  logger.error('Unhandled promise rejection', {
+    event: 'process.unhandled_rejection',
+    ...errorFields(reason),
+  });
   process.exit(1);
 });
 
 process.on('uncaughtException', (error: Error) => {
-  logger.error('Uncaught Exception:', error.message, error.stack);
+  logger.error('Uncaught exception', {
+    event: 'process.uncaught_exception',
+    ...errorFields(error),
+  });
   process.exit(1);
 });
 
-startServer();
+start().catch((error: unknown) => {
+  logger.error('Server failed to start', { event: 'server.start.failed', ...errorFields(error) });
+  // Close whatever already started, then exit with a failure code however the cleanup went
+  void stop('startup-failure', 1);
+});

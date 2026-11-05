@@ -1,15 +1,14 @@
+export type ServiceStatus = 'healthy' | 'unhealthy';
+
 export interface HealthResponse {
-  status: 'healthy' | 'unhealthy';
+  status: ServiceStatus;
   timestamp: string;
   uptime: number;
   memory: {
     rss: number;
     heapUsed: number;
   };
-  services: {
-    mongodb: 'healthy' | 'unhealthy';
-    redis: 'healthy' | 'unhealthy';
-  };
+  services: Record<string, ServiceStatus>;
 }
 
 export interface ReadinessResponse {

@@ -1,5 +1,5 @@
 import { logger } from '../lib/logger.js';
-import { setupRepeatedJobs } from './queues.js';
+import { closeQueues, setupRepeatedJobs } from './queues.js';
 import { initWorkers, shutdownWorkers } from './workers.js';
 
 export async function initJobs() {
@@ -12,4 +12,8 @@ export async function initJobs() {
   }
 }
 
-export { shutdownWorkers as shutdownJobs };
+/** Workers stop first, finishing their active jobs, then the queues they read from close. */
+export async function closeJobs(): Promise<void> {
+  await shutdownWorkers();
+  await closeQueues();
+}

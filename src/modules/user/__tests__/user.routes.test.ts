@@ -1,15 +1,11 @@
 import type { Express, NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { initLoaders } from '../../../core/loaders/index.js';
+import { initExpress } from '../../../core/loaders/express.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
 import User from '../user.model.js';
 
 setupTestDatabase();
-
-vi.mock('../../../core/loaders/mongoose', () => ({
-  initMongoose: vi.fn(),
-}));
 
 vi.mock('../../../jobs/queues', () => ({
   purgeQueue: {
@@ -18,14 +14,8 @@ vi.mock('../../../jobs/queues', () => ({
 }));
 
 vi.mock('../../../lib/redis', () => ({
-  connectRedis: vi.fn(),
   redisClient: {
-    connect: vi.fn(),
     ping: vi.fn().mockResolvedValue('PONG'),
-    get: vi.fn(),
-    set: vi.fn(),
-    del: vi.fn(),
-    quit: vi.fn(),
   },
 }));
 
@@ -37,7 +27,7 @@ let app: Express;
 
 describe('User Routes Integration', () => {
   beforeAll(async () => {
-    app = await initLoaders();
+    app = await initExpress();
   });
 
   it('POST /api/v1/auth/register should create a new user', async () => {

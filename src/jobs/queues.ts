@@ -54,3 +54,7 @@ queueEvents.on('failed', async ({ jobId, failedReason }) => {
 queueEvents.on('error', (error) => {
   logger.error('Redis connection error in user-purge queue:', error);
 });
+
+export async function closeQueues(): Promise<void> {
+  await Promise.all([purgeQueue.close(), queueEvents.close()]);
+}
