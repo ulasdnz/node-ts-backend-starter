@@ -176,9 +176,9 @@ flowchart TD
 ```
 
 If a restored account's purge job cannot be cancelled, the job stays queued and the worker skips the
-user, who is no longer deleted. Purge jobs have one fixed id per user, so the daily scan cannot
-queue a second purge for a user whose job still exists, even one that failed every attempt; see
-[Known limitations](#known-limitations).
+user, who is no longer deleted. Purge jobs have one fixed id per user, so the daily scan never
+queues a second purge for a user whose job still exists. A pending job is left alone; one that
+failed every attempt or completed without purging the user is retried with a fresh set of attempts.
 
 ## Design decisions
 
@@ -317,13 +317,16 @@ folders. `npm run test:coverage` fails below 89% of lines, 88% of statements, 91
 
 Two kinds of test keep the API document true to the code:
 
-- **Route parity** reads the route tables of the health and user routers, as the app mounts them,
-  and compares them with the operations in the document, in both directions. A route served but not
-  documented fails it, and so does an operation documented but not served. The docs endpoints and
-  the `/uploads` files are outside the comparison.
+- **Route parity** reads the route tables of the health and user routers and compares them with the
+  operations in the document, in both directions. A route served but not documented fails it, and so
+  does an operation documented but not served. It also fails when the app mounts a router with
+  routes that the comparison does not cover, and it requests every documented operation to prove the
+  app answers it at that path. The docs endpoints and the `/uploads` files are outside the
+  comparison.
 - **Response contract**: the user and health route tests pass every response through
-  `expectDocumentedResponse`, which fails when the operation does not document the status or the
-  body does not match the documented schema.
+  `expectDocumentedResponse`, which fails when the operation does not document the status, or when
+  the body does not match the documented schema, checked both by Zod and against the published JSON
+  Schema.
 
 ## Project structure
 
@@ -354,9 +357,6 @@ eslint/              # Custom Mongoose safety rules
 - **Not every write is audited.** Only `save()`, `findOneAndUpdate()` and `findOneAndDelete()` are
   recorded; `updateOne()`, `updateMany()`, `insertMany()`, `bulkWrite()` and the other write methods
   leave no entry.
-- **A purge that fails every attempt can stall.** Its failed job keeps the user's fixed job id, so
-  the daily scan cannot queue the purge again until BullMQ drops that job, which it does only when
-  another job in the queue fails at least 7 days later.
 - **Per-IP limits use the whole IPv6 address.** The API rate limit and the login limits key on
   `req.ip`, so a client that owns an IPv6 /64 can rotate addresses for fresh budgets.
 - **No audit log retention policy.** Entries stay until someone removes them; a purge only redacts

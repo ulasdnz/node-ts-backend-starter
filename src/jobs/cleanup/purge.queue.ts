@@ -32,7 +32,10 @@ export const cancelPurge = async (userId: string): Promise<void> => {
   await purgeQueue().remove(purgeJobId(userId));
 };
 
-/** A daily scan catches users whose purge job was lost, for example with a Redis outage. */
+/**
+ * A daily scan catches users whose purge job was lost, for example with a Redis outage, or ran
+ * without purging them.
+ */
 export const scheduleDailyPurgeScan = async (): Promise<void> => {
   await purgeQueue().upsertJobScheduler(
     'scan-users-daily',

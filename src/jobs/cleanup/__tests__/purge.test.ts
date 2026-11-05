@@ -1,4 +1,4 @@
-import type { Job, Queue } from 'bullmq';
+import type { FinishedStatus, Job, JobState, Queue, RetryOptions } from 'bullmq';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../../../config/index.js';
 import { runInContext } from '../../../core/middleware/request-context.js';
@@ -18,10 +18,61 @@ vi.mock('../../queue-factory.js', async (importOriginal) => ({
 
 setupTestDatabase();
 
-const queue = { add: vi.fn(), addBulk: vi.fn(), remove: vi.fn() };
+interface StoredJob {
+  name: string;
+  data: PurgeJobData;
+  state: JobState;
+  attemptsMade: number;
+  attemptsStarted: number;
+}
+
+// The purge queue in memory, under the BullMQ rules the purge code depends on: an add whose job id
+// exists, in any state, is ignored; remove() skips an active job, which its worker has locked; and
+// retry() moves only a job still in the given finished state back to waiting
+const jobs = new Map<string, StoredJob>();
+
+const store = (id: string, name: string, data: PurgeJobData, state: JobState) => {
+  if (!jobs.has(id)) jobs.set(id, { name, data, state, attemptsMade: 0, attemptsStarted: 0 });
+};
+
+const queue = {
+  add: vi.fn(async (name: string, data: PurgeJobData, opts: { jobId: string; delay?: number }) => {
+    store(opts.jobId, name, data, opts.delay ? 'delayed' : 'waiting');
+  }),
+  addBulk: vi.fn(async (bulk: { name: string; data: PurgeJobData; opts: { jobId: string } }[]) => {
+    for (const { name, data, opts } of bulk) store(opts.jobId, name, data, 'waiting');
+  }),
+  remove: vi.fn(async (id: string) => {
+    if (jobs.get(id)?.state === 'active') return 0;
+    jobs.delete(id);
+    return 1;
+  }),
+  // A snapshot of the job, as BullMQ returns it; its methods act on the queue
+  getJob: vi.fn(async (id: string) => {
+    const stored = jobs.get(id);
+    return (
+      stored && {
+        id,
+        ...stored,
+        getState: async () => jobs.get(id)?.state ?? 'unknown',
+        retry: async (state: FinishedStatus = 'failed', opts: RetryOptions = {}) => {
+          const job = jobs.get(id);
+          if (!job) throw new Error(`Missing key for job ${id}. reprocessJob`);
+          if (job.state !== state) {
+            throw new Error(`Job ${id} is not in the ${state} state. reprocessJob`);
+          }
+          job.state = 'waiting';
+          if (opts.resetAttemptsMade) job.attemptsMade = 0;
+          if (opts.resetAttemptsStarted) job.attemptsStarted = 0;
+        },
+      }
+    );
+  }),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  jobs.clear();
   vi.mocked(getQueue).mockReturnValue(queue as unknown as Queue);
 });
 
@@ -198,4 +249,50 @@ describe('scanUsersForPurge', () => {
       { name: 'purge-user', data: { userId: expired }, opts: { jobId: `purge-user-${expired}` } },
     ]);
   });
+
+  // A purge job that has run keeps the user's fixed job id until BullMQ trims it, and BullMQ ignores
+  // an add whose id exists, so adding the purge again would leave the user in place
+  it.each([
+    ['failed', 5],
+    ['completed', 1],
+  ] as const)(
+    'retries a purge job that %s without purging the user, with a fresh set of attempts',
+    async (state, attemptsMade) => {
+      const id = await insertUser('expired@example.com', expired());
+      jobs.set(`purge-user-${id}`, {
+        name: 'purge-user',
+        data: { userId: id },
+        state,
+        attemptsMade,
+        attemptsStarted: attemptsMade,
+      });
+
+      await scanUsersForPurge();
+
+      expect(jobs.get(`purge-user-${id}`)).toMatchObject({
+        state: 'waiting',
+        attemptsMade: 0,
+        attemptsStarted: 0,
+      });
+    },
+  );
+
+  it.each(['waiting', 'delayed', 'active'] as const)(
+    'leaves a purge job alone while it is %s',
+    async (state) => {
+      const id = await insertUser('expired@example.com', expired());
+      const pending: StoredJob = {
+        name: 'purge-user',
+        data: { userId: id, traceId: 'trace-delete' },
+        state,
+        attemptsMade: 0,
+        attemptsStarted: state === 'active' ? 1 : 0,
+      };
+      jobs.set(`purge-user-${id}`, { ...pending });
+
+      await scanUsersForPurge();
+
+      expect(jobs.get(`purge-user-${id}`)).toEqual(pending);
+    },
+  );
 });

@@ -13,6 +13,7 @@ vi.mock('../../../lib/redis.js', async () => {
 type OpenApiDocument = {
   openapi: string;
   paths: Record<string, Record<string, Operation>>;
+  components: { schemas: Record<string, { additionalProperties?: unknown }> };
 };
 type Operation = {
   security?: unknown[];
@@ -114,6 +115,11 @@ describe('the OpenAPI document', () => {
         });
       }
     }
+  });
+
+  it('lets a documented user carry fields the document does not list', () => {
+    // Every user response carries Mongoose's __v, which the document leaves out
+    expect(doc.components.schemas.User?.additionalProperties).not.toBe(false);
   });
 });
 

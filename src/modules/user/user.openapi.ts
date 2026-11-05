@@ -17,7 +17,7 @@ const timestamp = z.iso.datetime();
  * Mongoose's `__v`). The password hash and the token version never do.
  */
 export const userSchema = z
-  .object({
+  .looseObject({
     _id: z.string().regex(/^[0-9a-f]{24}$/),
     email: z.email(),
     name: z.string(),
@@ -112,8 +112,9 @@ export const userPaths: ZodOpenApiPathsObject = {
       tags: ['Users'],
       summary: 'Delete the signed-in account',
       description:
-        'The account is soft deleted and purged for good after the retention period. Signing in ' +
-        'before then restores it. If the purge cannot be scheduled, the deletion is rolled back.',
+        'The account is soft deleted and purged for good after the retention period. Signing ' +
+        'in before the purge restores it. If the purge cannot be scheduled, the deletion is ' +
+        'rolled back.',
       security: bearerAuth,
       responses: {
         200: { description: 'Deleted', ...json(z.object({ message: z.string() })) },
@@ -165,7 +166,8 @@ export const userPaths: ZodOpenApiPathsObject = {
       summary: 'List users, page by page',
       description:
         'Sort by a comma-separated list of createdAt, email, name and surname, with "-" for ' +
-        'descending order (default "-createdAt"). Ties are broken by id, so pages never overlap.',
+        'descending order (default "-createdAt"). Ties are broken by id, so the order is stable, ' +
+        'but writes made between two page requests can shift items across pages.',
       security: bearerAuth,
       requestParams: { query: userQuerySchema },
       responses: {
