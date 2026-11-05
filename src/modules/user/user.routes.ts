@@ -1,8 +1,8 @@
-import { Router } from 'express';
 import { authenticate } from '../../core/middleware/auth/authenticate.js';
 import { authorize } from '../../core/middleware/auth/authorize.js';
 import { uploadImage } from '../../core/middleware/upload.js';
 import { validateBody, validateParams, validateQuery } from '../../core/middleware/validate.js';
+import { createRouter } from '../../core/router.js';
 import * as userController from './user.controller.js';
 import {
   loginSchema,
@@ -12,7 +12,7 @@ import {
   userQuerySchema,
 } from './user.validators.js';
 
-const router = Router();
+const router = createRouter();
 
 router.post('/auth/register', validateBody(registerSchema), userController.register);
 router.post('/auth/login', validateBody(loginSchema), userController.login);

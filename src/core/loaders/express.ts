@@ -1,6 +1,6 @@
 import compression from 'compression';
 import cors from 'cors';
-import express, { json, Router, urlencoded, type Express } from 'express';
+import express, { json, urlencoded, type Express } from 'express';
 import helmet from 'helmet';
 import { config, type Config } from '../../config/index.js';
 import { httpLogger, logger } from '../../lib/logger.js';
@@ -12,6 +12,7 @@ import userRoutes from '../../modules/user/user.routes.js';
 import { createErrorHandler, notFoundHandler } from '../middleware/error-handler.js';
 import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
+import { createRouter } from '../router.js';
 import { isShuttingDown } from '../shutdown.js';
 import { initI18n } from './i18n.js';
 
@@ -57,7 +58,7 @@ export const initExpress = async (): Promise<Express> => {
   );
   app.use('/uploads', express.static(UPLOADS_DIRECTORY, { index: false }));
 
-  const api = Router();
+  const api = createRouter();
   api.use(
     createRateLimiter({
       keyPrefix: 'rl:api',

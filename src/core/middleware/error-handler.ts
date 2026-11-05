@@ -124,7 +124,7 @@ export const createErrorHandler =
     const statusCode = classified?.statusCode ?? 500;
     const code = classified?.code ?? 'error.unexpected';
     const stack = err instanceof Error ? err.stack : undefined;
-    const requestMeta = { statusCode, method: req.method, route: routePatternOf(req) };
+    const requestMeta = { statusCode, method: req.method, route: routePatternOf(req, res) };
 
     if (statusCode >= 500) {
       logger.error('Request failed with an unexpected error', {

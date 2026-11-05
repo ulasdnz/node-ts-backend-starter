@@ -87,7 +87,7 @@ export const createHttpLogger =
       logger.info('HTTP request completed', {
         event: 'http.request.completed',
         method: req.method,
-        route: routePatternOf(req),
+        route: routePatternOf(req, res),
         statusCode: res.statusCode,
         durationMs,
         ...(aborted && { aborted: true }),
