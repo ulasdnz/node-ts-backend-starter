@@ -1,6 +1,33 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { withTimeout } from '../../utils/timeout.js';
+import { logger } from '../logger.js';
 import { buildRedisOptions, closeRedisClients, createRedisClient } from '../redis.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('createRedisClient', () => {
+  const clientErrorLogs = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter(
+      ([, meta]) => (meta as { event?: string })?.event === 'redis.client.error',
+    ).length;
+
+  it('logs one error per Redis outage, not one per retry', async () => {
+    const error = vi.spyOn(logger, 'error');
+    const client = createRedisClient('flaky');
+
+    for (let retry = 0; retry < 3; retry += 1) client.emit('error', new Error('ECONNREFUSED'));
+    expect(clientErrorLogs(error)).toBe(1);
+
+    // Back, then down again: a new outage is worth a new error
+    client.emit('ready');
+    client.emit('error', new Error('ECONNRESET'));
+    expect(clientErrorLogs(error)).toBe(2);
+
+    await closeRedisClients();
+  });
+});
 
 describe('buildRedisOptions', () => {
   it('fails fast on the request path', () => {

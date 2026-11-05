@@ -3,12 +3,23 @@ import type { Server } from 'node:http';
 
 const IDLE_SWEEP_INTERVAL_MS = 100;
 
-/** Starts listening and resolves once the port is bound; a bind error (EADDRINUSE) rejects. */
+/**
+ * Starts listening and resolves once the port is bound; a bind error (EADDRINUSE) rejects. The
+ * error listener is removed once bound: left in place, it would swallow every later server error.
+ */
 export const listen = (app: Express, port: number): Promise<Server> =>
   new Promise((resolve, reject) => {
     const server = app.listen(port);
-    server.once('listening', () => resolve(server));
-    server.once('error', reject);
+    const onError = (error: Error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      resolve(server);
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
   });
 
 /**

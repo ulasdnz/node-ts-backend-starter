@@ -151,7 +151,9 @@ describe('createErrorHandler', () => {
       'ErrorHandlerValidation',
       new mongoose.Schema({ name: { type: String, required: true } }),
     );
-    const validationError = new Model({}).validateSync();
+    const validationError: unknown = await new Model({})
+      .validate()
+      .catch((error: unknown) => error);
 
     const res = await request(buildApp({ route: failingWith(validationError) }).app).get('/fail');
 

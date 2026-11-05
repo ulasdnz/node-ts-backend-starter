@@ -52,7 +52,12 @@ export const createRedisClient = (name: string, role: RedisRole = 'default'): Re
     },
   });
 
+  // ioredis emits an error on every failed reconnect. The first one of an outage is logged; the
+  // retry strategy above reports the outage as it goes on.
+  let inOutage = false;
   client.on('error', (error: Error) => {
+    if (inOutage) return;
+    inOutage = true;
     logger.error('Redis client error', {
       event: 'redis.client.error',
       client: name,
@@ -60,6 +65,7 @@ export const createRedisClient = (name: string, role: RedisRole = 'default'): Re
     });
   });
   client.on('ready', () => {
+    inOutage = false;
     logger.info('Redis client ready', { event: 'redis.client.ready', client: name });
   });
 
