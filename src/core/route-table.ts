@@ -12,6 +12,9 @@ type RouteWithMethods = IRoute & { methods: Record<string, boolean | undefined> 
 
 const toOpenApiPath = (path: string): string => path.replace(/:(\w+)/g, '{$1}');
 
+// router.all() records its route under the method `_all`
+const methodName = (method: string): string => (method === '_all' ? 'ALL' : method.toUpperCase());
+
 /**
  * Every route of the given routers as `METHOD /full/path`, with path parameters written the OpenAPI
  * way (`/api/v1/users/{id}`), sorted. Read from the routers' own route tables, so it lists what the
@@ -24,8 +27,8 @@ export const routeSignatures = (mounted: readonly MountedRouter[]): string[] =>
         if (!route) return [];
         const { path, methods } = route as RouteWithMethods;
         return Object.keys(methods)
-          .filter((method) => methods[method] && method !== '_all')
-          .map((method) => `${method.toUpperCase()} ${toOpenApiPath(`${base}${path}`)}`);
+          .filter((method) => methods[method])
+          .map((method) => `${methodName(method)} ${toOpenApiPath(`${base}${path}`)}`);
       }),
     )
     .sort();
