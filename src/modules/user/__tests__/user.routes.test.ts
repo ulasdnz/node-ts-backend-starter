@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initExpress } from '../../../core/loaders/express.js';
+import { purgeQueue } from '../../../jobs/queues.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
 import { createLoginProtection, type LoginProtection } from '../login-protection.js';
 import User from '../user.model.js';
@@ -141,5 +142,20 @@ describe('login', () => {
     const res = await login('  CASEY@Example.COM ');
 
     expect(res.status).toBe(200);
+  });
+
+  it('restores a soft-deleted account on login and cancels its purge', async () => {
+    const { body } = await register('back@example.com');
+    const userId = body.data._id as string;
+    await User.softDeleteById(userId);
+    const purgeJob = { remove: vi.fn().mockResolvedValue(undefined) };
+    vi.mocked(purgeQueue.getJob).mockResolvedValueOnce(purgeJob as never);
+
+    const res = await login('back@example.com');
+
+    expect(res.status).toBe(200);
+    expect(purgeQueue.getJob).toHaveBeenCalledWith(`purge-user-${userId}`);
+    expect(purgeJob.remove).toHaveBeenCalledTimes(1);
+    expect((await User.findById(userId))?.deleted).toBe(false);
   });
 });
