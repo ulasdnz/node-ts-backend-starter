@@ -37,6 +37,8 @@ export default defineConfig({
       MONGO_URI: 'mongodb://127.0.0.1:27017/unused',
       REDIS_URL: 'redis://127.0.0.1:1',
       JWT_SECRET: 'test-only-jwt-secret-of-at-least-32-chars',
+      // The minimum cost: hashing speed is not what the tests are about
+      BCRYPT_SALT_ROUNDS: '4',
     },
   },
 });

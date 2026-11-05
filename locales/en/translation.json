@@ -12,11 +12,13 @@
     "field_not_allowed": "Field is not allowed."
   },
   "auth": {
-    "missing_header": "Authorization header is missing",
     "invalid_token": "Invalid token",
     "token_expired": "Token expired",
     "invalid_credentials": "Invalid email or password",
-    "forbidden": "You do not have permission to perform this action."
+    "forbidden": "You do not have permission to perform this action.",
+    "missing_token": "Authentication is required. Send a bearer token.",
+    "account_disabled": "This account is disabled.",
+    "too_many_attempts": "Too many failed sign-in attempts. Try again later."
   },
   "user": {
     "email_in_use": "Email already in use",

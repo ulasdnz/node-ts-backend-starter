@@ -70,6 +70,23 @@ export const envSchema = z
     RATE_LIMIT_POINTS: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_DURATION_SECONDS: z.coerce.number().int().positive().default(60),
     SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+    // A duration in jsonwebtoken's short format: 15m, 12h, 1d...
+    JWT_EXPIRES_IN: z
+      .string()
+      .trim()
+      .regex(/^\d+(ms|s|m|h|d|w|y)?$/, {
+        message: 'JWT_EXPIRES_IN must be a duration such as 15m, 12h or 1d',
+      })
+      .default('1d'),
+    BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(10),
+    AUTH_CONTEXT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+    LOGIN_MAX_CONSECUTIVE_FAILS: z.coerce.number().int().positive().default(5),
+    LOGIN_BLOCK_DURATION_SECONDS: z.coerce.number().int().positive().default(900),
+    LOGIN_MAX_FAILS_PER_IP_PER_DAY: z.coerce.number().int().positive().default(100),
+    WORKERS_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
   })
   .superRefine((env, ctx) => {
     // A wrong default here either lets clients spoof their IP or puts every client behind the

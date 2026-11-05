@@ -20,8 +20,8 @@ export class CustomError extends Error {
 export class RateLimitError extends CustomError {
   public readonly retryAfterSeconds: number;
 
-  constructor(retryAfterSeconds: number) {
-    super(429, 'error.rate_limit_exceeded');
+  constructor(retryAfterSeconds: number, code = 'error.rate_limit_exceeded') {
+    super(429, code);
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }

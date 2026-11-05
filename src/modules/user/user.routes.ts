@@ -1,8 +1,8 @@
-import { authenticate } from '../../core/middleware/auth/authenticate.js';
 import { authorize } from '../../core/middleware/auth/authorize.js';
 import { uploadImage } from '../../core/middleware/upload.js';
 import { validateBody, validateParams, validateQuery } from '../../core/middleware/validate.js';
 import { createRouter } from '../../core/router.js';
+import { authenticate } from './user.auth-context.js';
 import * as userController from './user.controller.js';
 import {
   loginSchema,

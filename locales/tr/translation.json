@@ -12,11 +12,13 @@
     "field_not_allowed": "Bu alana izin verilmiyor."
   },
   "auth": {
-    "missing_header": "Yetkilendirme başlığı eksik",
     "invalid_token": "Geçersiz token",
     "token_expired": "Token süresi doldu",
     "invalid_credentials": "Geçersiz e-posta veya şifre",
-    "forbidden": "Bu işlem için yetkiniz yok."
+    "forbidden": "Bu işlem için yetkiniz yok.",
+    "missing_token": "Kimlik doğrulama gerekli. Bir bearer token gönderin.",
+    "account_disabled": "Bu hesap devre dışı.",
+    "too_many_attempts": "Çok fazla başarısız giriş denemesi. Daha sonra tekrar deneyin."
   },
   "user": {
     "email_in_use": "E-posta kullanımda",

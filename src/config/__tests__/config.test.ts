@@ -58,6 +58,23 @@ describe('envSchema', () => {
       CORS_ORIGINS: [],
       RATE_LIMIT_POINTS: 100,
       RATE_LIMIT_DURATION_SECONDS: 60,
+      JWT_EXPIRES_IN: '1d',
+      BCRYPT_SALT_ROUNDS: 10,
+      AUTH_CONTEXT_CACHE_TTL_SECONDS: 60,
+      LOGIN_MAX_CONSECUTIVE_FAILS: 5,
+      LOGIN_BLOCK_DURATION_SECONDS: 900,
+      LOGIN_MAX_FAILS_PER_IP_PER_DAY: 100,
+      WORKERS_ENABLED: true,
     });
+  });
+
+  it('parses WORKERS_ENABLED as a boolean', () => {
+    expect(envSchema.parse(base({ WORKERS_ENABLED: 'false' })).WORKERS_ENABLED).toBe(false);
+    expect(envSchema.safeParse(base({ WORKERS_ENABLED: 'no' })).success).toBe(false);
+  });
+
+  it('rejects a JWT_EXPIRES_IN that is not a duration', () => {
+    expect(envSchema.parse(base({ JWT_EXPIRES_IN: '15m' })).JWT_EXPIRES_IN).toBe('15m');
+    expect(envSchema.safeParse(base({ JWT_EXPIRES_IN: 'one day' })).success).toBe(false);
   });
 });

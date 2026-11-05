@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { config } from '../../config/index.js';
 import CustomError from '../../core/errors/index.js';
 import { detectImageExtension } from '../../core/middleware/upload.js';
@@ -7,6 +6,7 @@ import { purgeQueue } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import { storage } from '../../lib/storage.js';
 import User, { type IUser } from './user.model.js';
+import { issueAccessToken } from './user.tokens.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type { LoginInput, RegisterInput, UserQueryInput } from './user.validators.js';
 
@@ -53,9 +53,7 @@ export async function loginUser(data: LoginInput): Promise<AuthResponse> {
     logger.info(`Account restored: ${user.email}`);
   }
 
-  const token = jwt.sign({ id: user._id.toString(), role: user.role }, config.JWT_SECRET, {
-    expiresIn: '1d',
-  });
+  const token = issueAccessToken(user._id.toString());
 
   const { password: _password, ...userResponse } = user.toObject();
 
