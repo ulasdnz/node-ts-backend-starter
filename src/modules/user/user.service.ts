@@ -93,15 +93,25 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
 export async function changePassword(
   userId: string,
   { currentPassword, newPassword }: ChangePasswordInput,
+  ip: string,
 ): Promise<string> {
   const user = await User.findById(userId).select('+password');
   if (!user) {
     throw new CustomError(404, 'user.not_found');
   }
 
+  // Guesses at the current password count with failed sign-ins to the same account from the same
+  // IP, so a stolen token cannot be used to brute-force the password through this endpoint
+  await loginProtection.assertAllowed(user.email, ip);
   if (!(await verifyPassword(currentPassword, user.password))) {
+    await loginProtection.recordFailure(user.email, ip);
+    logger.warn('Password change rejected: wrong current password', {
+      event: 'user.password_change.rejected',
+      userId,
+    });
     throw new CustomError(400, 'user.invalid_current_password');
   }
+  await loginProtection.recordSuccess(user.email, ip);
 
   // One atomic update moves the user to the next token version, which revokes every token issued
   // before; two changes at once cannot both hand out tokens of the same version

@@ -293,6 +293,35 @@ describe('password change', () => {
     expect((await login('keeper@example.com', PASSWORD)).status).toBe(200);
   });
 
+  // Otherwise a stolen token could guess the current password at the general rate limit, and one
+  // right guess would turn a day-long token into the account for good
+  it('locks guessing at the current password like failed sign-ins', async () => {
+    await register('guarded@example.com');
+    const token = await signIn('guarded@example.com');
+    const warn = vi.spyOn(logger, 'warn');
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const res = await changePassword(token, {
+        currentPassword: `Guess${attempt}Password!`,
+        newPassword: NEW_PASSWORD,
+      });
+      expect(res.status).toBe(400);
+    }
+
+    // Even the right password is refused while the lock lasts
+    const locked = await changePassword(token, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(locked.status).toBe(429);
+    expect(locked.body.error.code).toBe('auth.too_many_attempts');
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: 'user.password_change.rejected' }),
+    );
+  });
+
   it('applies the password policy to the new password', async () => {
     await register('policy@example.com');
     const token = await signIn('policy@example.com');

@@ -44,7 +44,7 @@ export async function changePassword(
   req: Request<unknown, unknown, ChangePasswordInput>,
   res: Response<SuccessResponse<{ token: string }>>,
 ) {
-  const token = await userService.changePassword(req.user!.id, req.body);
+  const token = await userService.changePassword(req.user!.id, req.body, req.ip ?? 'unknown');
 
   res.json({
     message: req.t('success.password_changed'),
