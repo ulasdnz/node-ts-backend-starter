@@ -176,9 +176,9 @@ flowchart TD
 ```
 
 If a restored account's purge job cannot be cancelled, the job stays queued and the worker skips the
-user, who is no longer deleted. Purge jobs have one fixed id per user, so the daily scan cannot
-queue a second purge for a user whose job still exists, even one that failed every attempt; see
-[Known limitations](#known-limitations).
+user, who is no longer deleted. Purge jobs have one fixed id per user, so the daily scan never
+queues a second purge for a user whose job still exists. A pending job is left alone; one that
+failed every attempt or completed without purging the user is retried with a fresh set of attempts.
 
 ## Design decisions
 
@@ -354,9 +354,6 @@ eslint/              # Custom Mongoose safety rules
 - **Not every write is audited.** Only `save()`, `findOneAndUpdate()` and `findOneAndDelete()` are
   recorded; `updateOne()`, `updateMany()`, `insertMany()`, `bulkWrite()` and the other write methods
   leave no entry.
-- **A purge that fails every attempt can stall.** Its failed job keeps the user's fixed job id, so
-  the daily scan cannot queue the purge again until BullMQ drops that job, which it does only when
-  another job in the queue fails at least 7 days later.
 - **Per-IP limits use the whole IPv6 address.** The API rate limit and the login limits key on
   `req.ip`, so a client that owns an IPv6 /64 can rotate addresses for fresh budgets.
 - **No audit log retention policy.** Entries stay until someone removes them; a purge only redacts
