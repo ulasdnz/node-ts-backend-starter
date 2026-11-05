@@ -29,7 +29,8 @@
     "node": ">=26"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "start": "node dist/app.js",
     "dev": "tsx watch --env-file-if-exists=.env src/app.ts",
     "seed": "tsx --env-file-if-exists=.env src/database/seeders/index.ts",
