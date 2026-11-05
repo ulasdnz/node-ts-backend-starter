@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginationSchema } from '../../utils/pagination.js';
 import { objectIdSchema } from '../../utils/validators.js';
 
 // Emails are compared and stored in one spelling, so " Ann@Example.com" and "ann@example.com" are the
@@ -60,7 +61,7 @@ export const updateUserSchema = z
   })
   .strict();
 
-export const userQuerySchema = z.object({
+export const userQuerySchema = paginationSchema.extend({
   includeDeleted: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')

@@ -10,7 +10,10 @@
     "password_policy_max": "Password must be at most 64 characters",
     "password_required": "Password is required",
     "field_not_allowed": "Field is not allowed.",
-    "password_policy_bytes": "Password is too long. Use fewer special characters."
+    "password_policy_bytes": "Password is too long. Use fewer special characters.",
+    "page_invalid": "Page must be a whole number of 1 or more.",
+    "limit_invalid": "Limit must be a whole number from 1 to 100.",
+    "sort_invalid": "Sort parameter is too long."
   },
   "auth": {
     "invalid_token": "Invalid token",
@@ -33,13 +36,10 @@
   },
   "success": {
     "register": "User registered successfully",
-    "login": "Login successful",
     "login_restored": "Welcome back! Your account has been restored.",
     "delete": "User deleted successfully. It will be permanently removed in {{days}} days.",
     "update": "User updated successfully",
-    "avatar_update": "Avatar updated successfully",
-    "get": "User profile retrieved successfully",
-    "get_all": "Users fetched successfully."
+    "avatar_update": "Avatar updated successfully"
   },
   "error": {
     "unexpected": "An unexpected error occurred.",

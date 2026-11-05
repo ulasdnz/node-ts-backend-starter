@@ -47,6 +47,20 @@ const register = (email: string, password = PASSWORD) =>
 const login = (email: string, password = PASSWORD) =>
   request(app).post('/api/v1/auth/login').send({ email, password });
 
+const signIn = async (email: string, password = PASSWORD): Promise<string> => {
+  const res = await login(email, password);
+  return res.body.data.token as string;
+};
+
+const registerAdmin = async (email: string): Promise<string> => {
+  await register(email);
+  await User.updateOne({ email }, { role: 'admin' });
+  return signIn(email);
+};
+
+const getMe = (token: string) =>
+  request(app).get('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
+
 beforeAll(async () => {
   app = await initExpress();
 });
@@ -106,6 +120,8 @@ describe('login', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.token).toEqual(expect.any(String));
+    // A plain sign-in has nothing to tell the user; only a restored account gets a message
+    expect(res.body).not.toHaveProperty('message');
   });
 
   it('answers an unknown email and a wrong password identically', async () => {
@@ -169,8 +185,53 @@ describe('login', () => {
     const res = await login('back@example.com');
 
     expect(res.status).toBe(200);
+    expect(res.body.message).toEqual(expect.any(String));
     expect(purgeQueue.getJob).toHaveBeenCalledWith(`purge-user-${userId}`);
     expect(purgeJob.remove).toHaveBeenCalledTimes(1);
     expect((await User.findById(userId))?.deleted).toBe(false);
+  });
+});
+
+describe('profile and user list', () => {
+  it('reads do not carry a message', async () => {
+    const adminToken = await registerAdmin('reader@example.com');
+
+    const profile = await getMe(adminToken);
+    const list = await request(app)
+      .get('/api/v1/users')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect([profile.status, list.status]).toEqual([200, 200]);
+    expect(profile.body).not.toHaveProperty('message');
+    expect(list.body).not.toHaveProperty('message');
+  });
+
+  it('lists users page by page for admins', async () => {
+    const adminToken = await registerAdmin('admin@example.com');
+    for (const name of ['a', 'b', 'c']) await register(`${name}@list.example.com`);
+
+    const res = await request(app)
+      .get('/api/v1/users?limit=2&page=2&sort=email')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.pagination).toEqual({ page: 2, limit: 2, total: 4, totalPages: 2 });
+    expect(res.body.data.map((user: { email: string }) => user.email)).toEqual([
+      'b@list.example.com',
+      'c@list.example.com',
+    ]);
+  });
+
+  it('rejects a page size above 100', async () => {
+    const adminToken = await registerAdmin('limits@example.com');
+
+    const res = await request(app)
+      .get('/api/v1/users?limit=101')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.details).toEqual([
+      { field: 'limit', message: expect.any(String) as string },
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import type { MongoError } from '../../core/types/mongo.types.js';
 import { purgeQueue } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import { storage } from '../../lib/storage.js';
+import { type Page, paginate } from '../../utils/pagination.js';
 import { loginProtection } from './login-protection.js';
 import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password.js';
 import { invalidateAuthContext } from './user.auth-context.js';
@@ -12,6 +13,8 @@ import User, { type IUser } from './user.model.js';
 import { issueAccessToken } from './user.tokens.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type { LoginInput, RegisterInput, UserQueryInput } from './user.validators.js';
+
+const USER_SORT_FIELDS = ['createdAt', 'email', 'name', 'surname'];
 
 export async function registerUser(data: RegisterInput): Promise<UserResponse> {
   try {
@@ -153,18 +156,19 @@ export async function getUser(userId: string): Promise<UserResponse> {
   return user;
 }
 
-export async function getUsers(query: UserQueryInput): Promise<UserResponse[]> {
-  const q = User.find();
+export async function getUsers({
+  includeDeleted,
+  onlyDeleted,
+  ...pagination
+}: UserQueryInput): Promise<Page<UserResponse>> {
+  const query = User.find();
+  if (onlyDeleted) query.onlyDeleted();
+  else if (includeDeleted) query.withDeleted();
 
-  if (query.includeDeleted) {
-    q.withDeleted();
-  }
-
-  if (query.onlyDeleted) {
-    q.onlyDeleted();
-  }
-
-  return q.exec();
+  return paginate(query, pagination, {
+    allowedSortFields: USER_SORT_FIELDS,
+    defaultSort: { createdAt: -1 },
+  });
 }
 
 export async function findById(userId: string): Promise<UserResponse> {

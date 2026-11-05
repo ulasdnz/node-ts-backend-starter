@@ -2,9 +2,12 @@ import type { Request, Response } from 'express';
 import { config } from '../../config/index.js';
 import CustomError from '../../core/errors/index.js';
 import type { SuccessResponse } from '../../core/types/api.types.js';
+import type { PaginationMeta } from '../../utils/pagination.js';
 import * as userService from './user.service.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type { UserQueryInput } from './user.validators.js';
+
+// Response policy: changes answer with a localized message, reads with data alone
 
 export async function register(req: Request, res: Response<SuccessResponse<UserResponse>>) {
   const user = await userService.registerUser(req.body);
@@ -21,10 +24,9 @@ export async function login(
 ) {
   const { wasRestored, ...result } = await userService.loginUser(req.body, req.ip ?? 'unknown');
 
-  const messageKey = wasRestored ? 'success.login_restored' : 'success.login';
-
+  // A plain sign-in has nothing to tell the user; a restored account does
   res.json({
-    message: req.t(messageKey),
+    ...(wasRestored && { message: req.t('success.login_restored') }),
     data: result,
   });
 }
@@ -66,25 +68,20 @@ export async function updateAvatar(req: Request, res: Response<SuccessResponse<U
 }
 
 export async function getUser(req: Request, res: Response<SuccessResponse<UserResponse>>) {
-  const userId = req.user!.id;
-  const user = await userService.getUser(userId);
+  const user = await userService.getUser(req.user!.id);
 
-  res.json({
-    message: req.t('success.get'),
-    data: user,
-  });
+  res.json({ data: user });
 }
 
 export async function getUsers(
-  req: Request<unknown, unknown, unknown, UserQueryInput>,
-  res: Response<SuccessResponse<UserResponse[]>>,
+  req: Request,
+  res: Response<SuccessResponse<UserResponse[], { pagination: PaginationMeta }>>,
 ) {
-  const users = await userService.getUsers(req.query);
+  // Express types the query as raw strings; validateQuery has replaced it with the parsed values
+  const query = req.query as unknown as UserQueryInput;
+  const { data, pagination } = await userService.getUsers(query);
 
-  res.json({
-    message: req.t('success.get_all'),
-    data: users,
-  });
+  res.json({ data, meta: { pagination } });
 }
 
 export async function getUserById(
@@ -93,8 +90,5 @@ export async function getUserById(
 ) {
   const user = await userService.findById(req.params.id);
 
-  res.json({
-    message: req.t('success.get'),
-    data: user,
-  });
+  res.json({ data: user });
 }

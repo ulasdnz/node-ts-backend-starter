@@ -10,7 +10,10 @@
     "password_policy_max": "Şifre en fazla 64 karakter olmalıdır",
     "password_required": "Şifre gereklidir",
     "field_not_allowed": "Bu alana izin verilmiyor.",
-    "password_policy_bytes": "Şifre çok uzun. Daha az özel karakter kullanın."
+    "password_policy_bytes": "Şifre çok uzun. Daha az özel karakter kullanın.",
+    "page_invalid": "Sayfa 1 veya daha büyük bir tam sayı olmalıdır.",
+    "limit_invalid": "Limit 1 ile 100 arasında bir tam sayı olmalıdır.",
+    "sort_invalid": "Sıralama parametresi çok uzun."
   },
   "auth": {
     "invalid_token": "Geçersiz token",
@@ -33,13 +36,10 @@
   },
   "success": {
     "register": "Kullanıcı başarıyla kaydedildi",
-    "login": "Giriş başarılı",
     "login_restored": "Tekrar hoşgeldiniz! Hesabınız geri yüklendi.",
     "delete": "Kullanıcı başarıyla silindi. {{days}} gün içinde kalıcı olarak silinecektir.",
     "update": "Kullanıcı başarıyla güncellendi",
-    "avatar_update": "Avatar başarıyla güncellendi",
-    "get": "Kullanıcı başarıyla alındı",
-    "get_all": "Kullanıcılar başarıyla alındı"
+    "avatar_update": "Avatar başarıyla güncellendi"
   },
   "error": {
     "unexpected": "Beklenmedik bir hata oluştu.",
