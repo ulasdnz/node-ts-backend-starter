@@ -1,94 +1,107 @@
-import fs from 'fs';
-import morgan from 'morgan';
-import path from 'path';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import winston from 'winston';
-import DailyRotateFile from 'winston-daily-rotate-file';
-import { config } from '../config/index.js';
+import { config, type Config } from '../config/index.js';
 import { getContext } from '../core/middleware/request-context.js';
 
-const logDir = path.join(process.cwd(), 'logs');
-if (config.NODE_ENV === 'production') {
-  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-}
+// Cloud Logging derives a log entry's level from `severity`; winston's own `level` field is ignored
+const SEVERITY_BY_LEVEL: Record<string, string> = {
+  error: 'ERROR',
+  warn: 'WARNING',
+  info: 'INFO',
+  http: 'INFO',
+  verbose: 'DEBUG',
+  debug: 'DEBUG',
+  silly: 'DEBUG',
+};
 
 const contextFormat = winston.format((info) => {
-  const ctx = getContext();
-  if (ctx) {
-    info.traceId = ctx.traceId;
-    info.ip = ctx.ip;
+  const context = getContext();
+  if (context) {
+    info.traceId = context.traceId;
+    if (context.userId) info.userId = context.userId;
   }
   return info;
 });
 
-const consoleFormat = winston.format.combine(
-  winston.format.colorize(),
-  winston.format.timestamp({ format: () => new Date().toISOString() }),
-  winston.format.printf((info) => {
-    const { level, message, timestamp, traceId, stack } = info;
-
-    const errorStack = typeof stack === 'string' ? stack.split('\n')[0] : stack;
-    const logMessage = errorStack || message || 'No message provided';
-
-    return `[${timestamp}] ${level} [traceId=${traceId || 'no-trace'}] ${logMessage}`;
-  }),
-);
-
-const fileFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.splat(),
-  winston.format.printf(({ timestamp, level, message, traceId, ip, stack, ...meta }) => {
-    return JSON.stringify({
-      timestamp,
-      level,
-      message,
-      statusCode: meta.statusCode,
-      method: meta.method,
-      path: meta.path,
-      traceId,
-      ip,
-      ...meta,
-      stack,
-    });
-  }),
-);
-
-const dailyRotateFile = new DailyRotateFile({
-  dirname: logDir,
-  level: 'info',
-  filename: 'app-%DATE%.log',
-  datePattern: 'YYYY-MM-DD',
-  zippedArchive: true,
-  maxSize: '20m',
-  maxFiles: '14d',
-  utc: true,
-  format: winston.format.combine(contextFormat(), fileFormat),
+const severityFormat = winston.format((info) => {
+  info.severity = SEVERITY_BY_LEVEL[info.level] ?? 'DEFAULT';
+  return info;
 });
 
-const transports: winston.transport[] = [
-  new winston.transports.Console({
-    format: winston.format.combine(contextFormat(), consoleFormat),
-  }),
-];
+/** One JSON object per line on stdout, ready for any log collector. */
+export const productionFormat = winston.format.combine(
+  winston.format.errors({ stack: true }),
+  contextFormat(),
+  winston.format.timestamp(),
+  severityFormat(),
+  winston.format.json(),
+);
 
-if (config.NODE_ENV === 'production') {
-  transports.push(dailyRotateFile);
+/** Human-readable lines that still show every structured field. */
+export const developmentFormat = winston.format.combine(
+  winston.format.errors({ stack: true }),
+  contextFormat(),
+  winston.format.colorize(),
+  winston.format.timestamp(),
+  winston.format.printf((info) => {
+    const { level, message, timestamp, traceId, event, stack, ...meta } = info;
+    const eventTag = event ? ` [${String(event)}]` : '';
+    const metaText = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
+    const text = typeof stack === 'string' ? stack : String(message);
+
+    return `[${String(timestamp)}] ${level} [${String(traceId ?? '-')}]${eventTag} ${text}${metaText}`;
+  }),
+);
+
+export interface LoggerOptions {
+  level: string;
+  nodeEnv: Config['NODE_ENV'];
 }
 
-export const logger = winston.createLogger({
-  level: config.LOG_LEVEL,
-  transports,
-});
+export const createLogger = ({ level, nodeEnv }: LoggerOptions): winston.Logger =>
+  winston.createLogger({
+    level,
+    format: nodeEnv === 'production' ? productionFormat : developmentFormat,
+    transports: [new winston.transports.Console({ silent: nodeEnv === 'test' })],
+  });
 
-export const morganMiddleware = morgan(
-  (tokens, req, res) =>
-    `${tokens.method(req, res)} ${tokens.url(req, res)} ${tokens.status(
-      req,
-      res,
-    )} - ${tokens['response-time'](req, res)} ms`,
-  {
-    stream: {
-      write: (message) => logger.http(message.trim()),
-    },
-  },
-);
+/**
+ * Logs every request once it ends: with the route pattern rather than the raw URL (no ids or query
+ * strings in the log, and stable values to aggregate on), the status code and the duration. A request
+ * whose client went away before the response was sent is marked `aborted`.
+ */
+export const createHttpLogger =
+  (logger: winston.Logger): RequestHandler =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const startedAt = process.hrtime.bigint();
+    let logged = false;
+
+    const log = (aborted: boolean) => {
+      if (logged) return;
+      logged = true;
+
+      const route = req.route
+        ? `${req.baseUrl}${String(req.route.path)}`
+        : req.originalUrl.split('?')[0];
+      const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e4) / 100;
+
+      logger.http('HTTP request completed', {
+        event: 'http.request.completed',
+        method: req.method,
+        route,
+        statusCode: res.statusCode,
+        durationMs,
+        ...(aborted && { aborted: true }),
+      });
+    };
+
+    res.on('finish', () => log(false));
+    res.on('close', () => {
+      if (!res.writableFinished) log(true);
+    });
+
+    next();
+  };
+
+export const logger = createLogger({ level: config.LOG_LEVEL, nodeEnv: config.NODE_ENV });
+export const httpLogger = createHttpLogger(logger);

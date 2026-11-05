@@ -33,16 +33,6 @@ vi.mock('../../../core/middleware/rate-limiter', () => ({
   rateLimiterMiddleware: (req: Request, res: Response, next: NextFunction) => next(),
 }));
 
-vi.mock('../../../lib/logger', () => ({
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-  },
-  morganMiddleware: (req: Request, res: Response, next: NextFunction) => next(),
-}));
-
 let app: Express;
 
 describe('User Routes Integration', () => {

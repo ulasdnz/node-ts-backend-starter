@@ -2,7 +2,7 @@ import compression from 'compression';
 import cors from 'cors';
 import express, { json, urlencoded } from 'express';
 import helmet from 'helmet';
-import { morganMiddleware } from '../../lib/logger.js';
+import { httpLogger } from '../../lib/logger.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { rateLimiterMiddleware } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
@@ -17,6 +17,11 @@ export const initExpress = async () => {
   const i18nMiddleware = await initI18n();
 
   app.enable('trust proxy');
+
+  // First, so every later log line (including body parsing failures) carries the trace id
+  app.use(contextMiddleware);
+  app.use(httpLogger);
+
   app.use(helmet());
   app.use(cors());
   app.use(json());
@@ -24,8 +29,6 @@ export const initExpress = async () => {
   app.use(compression());
   app.use(i18nMiddleware);
 
-  app.use(contextMiddleware);
-  app.use(morganMiddleware);
   app.use(express.static('public'));
   app.use('/uploads', express.static('uploads'));
   app.disable('x-powered-by');
