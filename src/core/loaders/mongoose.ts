@@ -26,9 +26,9 @@ function setupMongooseEventListeners(): void {
   mongoose.connection.on('reconnected', () => {
     logger.info('MongoDB reconnected');
   });
-  mongoose.connection.on('error', (err) => {
+  mongoose.connection.on('error', (error: unknown) => {
     logger.error('MongoDB connection error', {
-      error: err instanceof Error ? err.message : err,
+      error: error instanceof Error ? error.message : String(error),
     });
   });
 }

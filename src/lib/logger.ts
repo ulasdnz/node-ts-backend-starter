@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import winston from 'winston';
 import { config, type Config } from '../config/index.js';
 import { getContext } from '../core/middleware/request-context.js';
+import { routePatternOf } from '../core/route-pattern.js';
 
 // Cloud Logging derives a log entry's level from `severity`; winston's own `level` field is ignored
 const SEVERITY_BY_LEVEL: Record<string, string> = {
@@ -45,11 +46,12 @@ export const developmentFormat = winston.format.combine(
   winston.format.timestamp(),
   winston.format.printf((info) => {
     const { level, message, timestamp, traceId, event, stack, ...meta } = info;
-    const eventTag = event ? ` [${String(event)}]` : '';
+    const eventTag = typeof event === 'string' ? ` [${event}]` : '';
+    const trace = typeof traceId === 'string' ? traceId : '-';
     const metaText = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
     const text = typeof stack === 'string' ? stack : String(message);
 
-    return `[${String(timestamp)}] ${level} [${String(traceId ?? '-')}]${eventTag} ${text}${metaText}`;
+    return `[${String(timestamp)}] ${level} [${trace}]${eventTag} ${text}${metaText}`;
   }),
 );
 
@@ -80,15 +82,12 @@ export const createHttpLogger =
       if (logged) return;
       logged = true;
 
-      const route = req.route
-        ? `${req.baseUrl}${String(req.route.path)}`
-        : req.originalUrl.split('?')[0];
       const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e4) / 100;
 
       logger.http('HTTP request completed', {
         event: 'http.request.completed',
         method: req.method,
-        route,
+        route: routePatternOf(req),
         statusCode: res.statusCode,
         durationMs,
         ...(aborted && { aborted: true }),

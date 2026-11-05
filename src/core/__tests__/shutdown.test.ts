@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Logger } from 'winston';
 import { createShutdownManager } from '../shutdown.js';
 
 const setup = (timeoutMs = 1000) => {
   const manager = createShutdownManager();
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const exit = vi.fn();
-  const run = (reason = 'SIGTERM') =>
-    manager.shutdown(reason, { logger: logger as unknown as Logger, timeoutMs, exit });
+  const run = (reason = 'SIGTERM') => manager.shutdown(reason, { logger: logger, timeoutMs, exit });
   return { manager, logger, exit, run };
 };
 

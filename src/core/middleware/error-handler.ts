@@ -5,6 +5,7 @@ import type { Logger } from 'winston';
 import { ZodError } from 'zod';
 import type { Config } from '../../config/index.js';
 import { CustomError, RateLimitError } from '../errors/index.js';
+import { routePatternOf } from '../route-pattern.js';
 import type { ErrorDetail, ErrorResponse } from '../types/api.types.js';
 import type { MongoError } from '../types/mongo.types.js';
 import { getTraceId } from './request-context.js';
@@ -110,9 +111,6 @@ const translatorFor = (req: Request): TFunction =>
     ? req.t
     : i18next.getFixedT(req.acceptsLanguages(...SUPPORTED_LANGUAGES) || 'en');
 
-const routeOf = (req: Request): string | undefined =>
-  req.route ? `${req.baseUrl}${String(req.route.path)}` : req.originalUrl?.split('?')[0];
-
 export const createErrorHandler =
   ({ logger, nodeEnv }: ErrorHandlerOptions): ErrorRequestHandler =>
   (err: unknown, req: Request, res: Response, next: NextFunction): void => {
@@ -126,7 +124,7 @@ export const createErrorHandler =
     const statusCode = classified?.statusCode ?? 500;
     const code = classified?.code ?? 'error.unexpected';
     const stack = err instanceof Error ? err.stack : undefined;
-    const requestMeta = { statusCode, method: req.method, route: routeOf(req) };
+    const requestMeta = { statusCode, method: req.method, route: routePatternOf(req) };
 
     if (statusCode >= 500) {
       logger.error('Request failed with an unexpected error', {

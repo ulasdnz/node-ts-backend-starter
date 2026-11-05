@@ -36,7 +36,7 @@ describe('translations', () => {
   it('every translation key referenced in src exists in en', () => {
     const known = new Set(localeKeys('en'));
     const used = sourceFiles(path.join(root, 'src')).flatMap((file) =>
-      [...readFileSync(file, 'utf8').matchAll(KEY_LITERAL)].map((match) => match[1] as string),
+      [...readFileSync(file, 'utf8').matchAll(KEY_LITERAL)].map((match) => match[1]),
     );
 
     const missing = [...new Set(used)].filter((key) => !known.has(key)).sort();

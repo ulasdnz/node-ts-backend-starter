@@ -8,10 +8,11 @@ export interface ShutdownOptions {
   exit: (code: number) => void;
 }
 
+// Function properties rather than methods: they hold no `this`, so they can be exported detached
 export interface ShutdownManager {
-  onShutdown(name: string, hook: ShutdownHook): void;
-  isShuttingDown(): boolean;
-  shutdown(reason: string, options: ShutdownOptions): Promise<void>;
+  onShutdown: (name: string, hook: ShutdownHook) => void;
+  isShuttingDown: () => boolean;
+  shutdown: (reason: string, options: ShutdownOptions) => Promise<void>;
 }
 
 /**
@@ -24,13 +25,13 @@ export const createShutdownManager = (): ShutdownManager => {
   let shuttingDown = false;
 
   return {
-    onShutdown(name, hook) {
+    onShutdown: (name, hook) => {
       hooks.push({ name, hook });
     },
 
     isShuttingDown: () => shuttingDown,
 
-    async shutdown(reason, { logger, timeoutMs, exit }) {
+    shutdown: async (reason, { logger, timeoutMs, exit }) => {
       if (shuttingDown) {
         logger.warn('Shutdown already in progress', { event: 'shutdown.duplicate', reason });
         return;

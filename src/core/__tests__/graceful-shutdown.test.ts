@@ -1,7 +1,6 @@
 import express from 'express';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
-import type { Logger } from 'winston';
 import { closeHttpServer } from '../http-server.js';
 import { createShutdownManager } from '../shutdown.js';
 
@@ -43,7 +42,7 @@ describe('graceful shutdown', () => {
     const pending = fetch(`http://127.0.0.1:${port}/slow`);
     await started.promise;
     const stopping = manager.shutdown('SIGTERM', {
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       timeoutMs: 5000,
       exit,
     });

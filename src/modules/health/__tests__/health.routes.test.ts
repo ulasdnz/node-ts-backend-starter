@@ -1,7 +1,6 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
-import type { Logger } from 'winston';
 import { redisProbe, type HealthProbe } from '../health.probes.js';
 import { createHealthRouter } from '../health.routes.js';
 
@@ -18,7 +17,7 @@ const buildApp = (probes: HealthProbe[], shuttingDown = false) => {
   app.use(
     createHealthRouter({
       probes,
-      logger: logger as unknown as Logger,
+      logger: logger,
       isShuttingDown: () => shuttingDown,
     }),
   );

@@ -15,7 +15,7 @@ const LEVEL = Symbol.for('level');
 const render = (format: Format, info: LogInfo): string => {
   const output = format.transform({ ...info, [LEVEL]: info.level });
   if (!output) throw new Error('format dropped the log entry');
-  return (output as unknown as Record<symbol, string>)[MESSAGE] as string;
+  return (output as unknown as Record<symbol, string>)[MESSAGE];
 };
 
 describe('productionFormat', () => {
