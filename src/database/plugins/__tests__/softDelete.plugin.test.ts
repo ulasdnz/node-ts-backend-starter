@@ -36,6 +36,35 @@ describe('softDeletePlugin', () => {
       expect(doc.deleted).toBe(false);
       expect(doc.deletedAt).toBeNull();
     });
+
+    // A boolean that is false on nearly every document narrows nothing, yet every write maintains it
+    it('does not index the boolean deleted flag on its own', () => {
+      const indexKeys = TestModel.schema.indexes().map(([fields]) => fields);
+
+      expect(indexKeys).not.toContainEqual({ deleted: 1 });
+    });
+  });
+
+  describe('Counting and distinct', () => {
+    beforeEach(async () => {
+      await TestModel.create([{ name: 'active1' }, { name: 'active2' }]);
+      const gone = await TestModel.create({ name: 'gone' });
+      await TestModel.softDeleteById(gone._id.toString());
+    });
+
+    it('countDocuments excludes soft-deleted documents', async () => {
+      expect(await TestModel.countDocuments()).toBe(2);
+    });
+
+    it('countDocuments with withDeleted includes them', async () => {
+      expect(await TestModel.countDocuments().withDeleted()).toBe(3);
+    });
+
+    it('distinct excludes soft-deleted documents', async () => {
+      const names = await TestModel.distinct('name');
+
+      expect(names.sort()).toEqual(['active1', 'active2']);
+    });
   });
 
   describe('Query Helpers', () => {
@@ -106,6 +135,15 @@ describe('softDeletePlugin', () => {
       await expect(TestModel.findOneAndDelete({ name: 'test' })).rejects.toThrow(
         'Hard delete is disabled. Use softDeleteById() instead.',
       );
+    });
+
+    it('blocks document-level deleteOne', async () => {
+      const doc = await TestModel.findOne({ name: 'test' }).orFail();
+
+      await expect(doc.deleteOne()).rejects.toThrow(
+        'Hard delete is disabled. Use softDeleteById() instead.',
+      );
+      expect(await TestModel.countDocuments({ name: 'test' }).withDeleted()).toBe(1);
     });
   });
 

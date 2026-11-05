@@ -62,7 +62,8 @@ export function softDeletePlugin(schema: Schema) {
     },
   });
 
-  schema.index({ deleted: 1 });
+  // No index on `deleted` alone: nearly every document has the same value, so it narrows nothing
+  // and only costs writes. The purge job finds expired documents through this partial index.
   schema.index(
     { deletedAt: 1 },
     {
@@ -82,17 +83,20 @@ export function softDeletePlugin(schema: Schema) {
     return this;
   };
 
-  schema.pre(/^find/, function (this: Query<unknown, unknown>) {
-    const opts = this.getOptions();
-    const query = this.getQuery();
+  // Reads see active documents only, unless the query opts out with withDeleted() or filters on
+  // `deleted` itself. estimatedDocumentCount() reads collection metadata and cannot be filtered.
+  function excludeSoftDeleted(this: Query<unknown, unknown>) {
+    if (this.getOptions().withDeleted) return;
 
-    if (opts.withDeleted) return;
-
-    if (query.deleted === undefined) {
+    if (this.getQuery().deleted === undefined) {
       this.where({ deleted: false });
     }
-  });
+  }
 
+  schema.pre(/^find/, excludeSoftDeleted);
+  schema.pre(['countDocuments', 'distinct'], excludeSoftDeleted);
+
+  // Document deleteOne() runs through this query hook as well, so it is blocked too
   schema.pre('deleteOne', { document: false, query: true }, function () {
     throw new Error('Hard delete is disabled. Use softDeleteById() instead.');
   });
