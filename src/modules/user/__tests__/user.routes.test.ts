@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs';
 import type { Express } from 'express';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { config } from '../../../config/index.js';
 import { initExpress } from '../../../core/loaders/express.js';
 import { AuditLog } from '../../../database/plugins/audit-log.model.js';
 import { flushAuditLogs } from '../../../database/plugins/audit-log.plugin.js';
@@ -58,8 +60,23 @@ const registerAdmin = async (email: string): Promise<string> => {
   return signIn(email);
 };
 
+// Revocation compares whole seconds, so a token from the same second as a password change stays
+// valid by design. Tests that expect revocation use a token issued earlier.
+const tokenIssuedSecondsAgo = (userId: string, seconds: number): string =>
+  jwt.sign({ iat: Math.floor(Date.now() / 1000) - seconds }, config.JWT_SECRET, {
+    algorithm: 'HS256',
+    subject: userId,
+    expiresIn: '1h',
+  });
+
 const getMe = (token: string) =>
   request(app).get('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
+
+const changePassword = (token: string, body: { currentPassword: string; newPassword: string }) =>
+  request(app)
+    .patch('/api/v1/users/me/password')
+    .set('Authorization', `Bearer ${token}`)
+    .send(body);
 
 beforeAll(async () => {
   app = await initExpress();
@@ -192,6 +209,53 @@ describe('login', () => {
   });
 });
 
+describe('password change', () => {
+  const NEW_PASSWORD = 'NewPassword456!';
+
+  it('changes the password, returns a working token and revokes the old one', async () => {
+    const { body } = await register('rotate@example.com');
+    const oldToken = tokenIssuedSecondsAgo(body.data._id as string, 60);
+    // Caches the auth context, which the change has to invalidate
+    expect((await getMe(oldToken)).status).toBe(200);
+
+    const res = await changePassword(oldToken, {
+      currentPassword: PASSWORD,
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toEqual(expect.any(String));
+    expect((await getMe(res.body.data.token as string)).status).toBe(200);
+    expect((await getMe(oldToken)).status).toBe(401);
+    expect((await login('rotate@example.com', PASSWORD)).status).toBe(401);
+    expect((await login('rotate@example.com', NEW_PASSWORD)).status).toBe(200);
+  });
+
+  it('rejects a wrong current password with 400 user.invalid_current_password', async () => {
+    await register('keeper@example.com');
+    const token = await signIn('keeper@example.com');
+
+    const res = await changePassword(token, {
+      currentPassword: 'WrongPassword1!',
+      newPassword: NEW_PASSWORD,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('user.invalid_current_password');
+    expect((await login('keeper@example.com', PASSWORD)).status).toBe(200);
+  });
+
+  it('applies the password policy to the new password', async () => {
+    await register('policy@example.com');
+    const token = await signIn('policy@example.com');
+
+    const res = await changePassword(token, { currentPassword: PASSWORD, newPassword: 'short' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('error.validation_failed');
+  });
+});
+
 describe('profile and user list', () => {
   it('reads do not carry a message', async () => {
     const adminToken = await registerAdmin('reader@example.com');
@@ -233,5 +297,19 @@ describe('profile and user list', () => {
     expect(res.body.error.details).toEqual([
       { field: 'limit', message: expect.any(String) as string },
     ]);
+  });
+
+  it("a deleted account's token stops working at once", async () => {
+    await register('leaving@example.com');
+    const token = await signIn('leaving@example.com');
+    // Caches the auth context, which the deletion has to invalidate
+    expect((await getMe(token)).status).toBe(200);
+
+    const deletion = await request(app)
+      .delete('/api/v1/users/me')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(deletion.status).toBe(200);
+    expect((await getMe(token)).status).toBe(401);
   });
 });

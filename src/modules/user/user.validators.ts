@@ -61,6 +61,13 @@ export const updateUserSchema = z
   })
   .strict();
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: passwordInputSchema,
+    newPassword: passwordPolicySchema,
+  })
+  .strict();
+
 export const userQuerySchema = paginationSchema.extend({
   includeDeleted: z
     .enum(['true', 'false'])
@@ -79,4 +86,5 @@ export const userIdParamSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type UserQueryInput = z.infer<typeof userQuerySchema>;

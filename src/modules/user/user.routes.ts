@@ -5,6 +5,7 @@ import { createRouter } from '../../core/router.js';
 import { authenticate } from './user.auth-context.js';
 import * as userController from './user.controller.js';
 import {
+  changePasswordSchema,
   loginSchema,
   registerSchema,
   updateUserSchema,
@@ -19,6 +20,12 @@ router.post('/auth/login', validateBody(loginSchema), userController.login);
 
 router.get('/users/me', authenticate, userController.getUser);
 router.patch('/users/me', authenticate, validateBody(updateUserSchema), userController.updateUser);
+router.patch(
+  '/users/me/password',
+  authenticate,
+  validateBody(changePasswordSchema),
+  userController.changePassword,
+);
 router.patch('/users/me/avatar', authenticate, uploadImage('photo'), userController.updateAvatar);
 router.delete('/users/me', authenticate, userController.deleteUser);
 

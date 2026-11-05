@@ -12,7 +12,12 @@ import { invalidateAuthContext } from './user.auth-context.js';
 import User, { type IUser } from './user.model.js';
 import { issueAccessToken } from './user.tokens.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
-import type { LoginInput, RegisterInput, UserQueryInput } from './user.validators.js';
+import type {
+  ChangePasswordInput,
+  LoginInput,
+  RegisterInput,
+  UserQueryInput,
+} from './user.validators.js';
 
 const USER_SORT_FIELDS = ['createdAt', 'email', 'name', 'surname'];
 
@@ -71,11 +76,35 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
   };
 }
 
+export async function changePassword(
+  userId: string,
+  { currentPassword, newPassword }: ChangePasswordInput,
+): Promise<string> {
+  const user = await User.findById(userId).select('+password');
+  if (!user) {
+    throw new CustomError(404, 'user.not_found');
+  }
+
+  if (!(await verifyPassword(currentPassword, user.password))) {
+    throw new CustomError(400, 'user.invalid_current_password');
+  }
+
+  user.password = await hashPassword(newPassword);
+  // Every token issued before this second stops working
+  user.passwordChangedAt = new Date();
+  await user.save();
+  await invalidateAuthContext(userId);
+
+  // The caller's own token is one of them, so it gets a new one
+  return issueAccessToken(userId);
+}
+
 export async function deleteUser(userId: string): Promise<void> {
   const user = await User.softDeleteById(userId);
   if (!user) {
     throw new CustomError(404, 'user.not_found');
   }
+  await invalidateAuthContext(userId);
 
   const jobId = `purge-user-${userId}`;
 

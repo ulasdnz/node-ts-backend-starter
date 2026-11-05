@@ -27,7 +27,8 @@
   "user": {
     "email_in_use": "E-posta kullanımda",
     "not_found": "Kullanıcı bulunamadı",
-    "avatar_required": "Avatar dosyası gereklidir"
+    "avatar_required": "Avatar dosyası gereklidir",
+    "invalid_current_password": "Mevcut şifre hatalı."
   },
   "upload": {
     "only_images": "Yalnızca JPEG, PNG veya WebP görselleri yüklenebilir.",
@@ -39,7 +40,8 @@
     "login_restored": "Tekrar hoşgeldiniz! Hesabınız geri yüklendi.",
     "delete": "Kullanıcı başarıyla silindi. {{days}} gün içinde kalıcı olarak silinecektir.",
     "update": "Kullanıcı başarıyla güncellendi",
-    "avatar_update": "Avatar başarıyla güncellendi"
+    "avatar_update": "Avatar başarıyla güncellendi",
+    "password_changed": "Şifre değiştirildi. Diğer oturumlarınız kapatıldı."
   },
   "error": {
     "unexpected": "Beklenmedik bir hata oluştu.",

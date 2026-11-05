@@ -27,7 +27,8 @@
   "user": {
     "email_in_use": "Email already in use",
     "not_found": "User not found",
-    "avatar_required": "Avatar file is required"
+    "avatar_required": "Avatar file is required",
+    "invalid_current_password": "Current password is incorrect."
   },
   "upload": {
     "only_images": "Only JPEG, PNG or WebP images are allowed.",
@@ -39,7 +40,8 @@
     "login_restored": "Welcome back! Your account has been restored.",
     "delete": "User deleted successfully. It will be permanently removed in {{days}} days.",
     "update": "User updated successfully",
-    "avatar_update": "Avatar updated successfully"
+    "avatar_update": "Avatar updated successfully",
+    "password_changed": "Password changed. Your other sessions have been signed out."
   },
   "error": {
     "unexpected": "An unexpected error occurred.",

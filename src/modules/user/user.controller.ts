@@ -5,7 +5,7 @@ import type { SuccessResponse } from '../../core/types/api.types.js';
 import type { PaginationMeta } from '../../utils/pagination.js';
 import * as userService from './user.service.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
-import type { UserQueryInput } from './user.validators.js';
+import type { ChangePasswordInput, UserQueryInput } from './user.validators.js';
 
 // Response policy: changes answer with a localized message, reads with data alone
 
@@ -28,6 +28,18 @@ export async function login(
   res.json({
     ...(wasRestored && { message: req.t('success.login_restored') }),
     data: result,
+  });
+}
+
+export async function changePassword(
+  req: Request<unknown, unknown, ChangePasswordInput>,
+  res: Response<SuccessResponse<{ token: string }>>,
+) {
+  const token = await userService.changePassword(req.user!.id, req.body);
+
+  res.json({
+    message: req.t('success.password_changed'),
+    data: { token },
   });
 }
 
