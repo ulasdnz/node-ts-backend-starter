@@ -4,9 +4,13 @@ import { randomUUID } from 'node:crypto';
 
 export interface RequestContext {
   traceId: string;
+  /** Empty outside HTTP requests. */
   ip: string;
   userId?: string;
 }
+
+/** The user id of work no person asked for: background jobs, scripts and migrations. */
+export const SYSTEM_USER_ID = 'system';
 
 const storage = new AsyncLocalStorage<RequestContext>();
 

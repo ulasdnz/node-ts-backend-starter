@@ -1,45 +1,40 @@
-import { Job } from 'bullmq';
+import type { Job } from 'bullmq';
 import { Types } from 'mongoose';
 import { config } from '../../config/index.js';
 import { logger } from '../../lib/logger.js';
 import User from '../../modules/user/user.model.js';
+import type { PurgeJobData } from './purge.queue.js';
 import { scanUsersForPurge } from './purge.scheduler.js';
 
-const RETENTION_MS = config.USER_DELETION_RETENTION_MS;
+export type PurgeResult = { scanned: number } | { deleted: boolean; userId: string };
 
-interface PurgeJobData {
-  userId?: string;
-}
-
-export default async function purgeProcessor(job: Job<PurgeJobData>) {
+/**
+ * Processes the purge queue. A purge-user job hard deletes the user only if it is still soft
+ * deleted and past retention when the job runs, so a restore after scheduling makes the job a
+ * no-op rather than a mistake.
+ */
+export const purgeProcessor = async (job: Job<PurgeJobData>): Promise<PurgeResult> => {
   if (job.name === 'scan-users') {
-    await scanUsersForPurge();
-    return { scanned: true };
+    return { scanned: await scanUsersForPurge() };
   }
 
-  if (job.name === 'purge-user') {
-    logger.info(`Purging user: ${job.data.userId}`);
-
-    const { userId } = job.data;
-    if (!userId) {
-      throw new Error('UserId is required for purge-user job');
-    }
-
-    const retentionDate = new Date(Date.now() - RETENTION_MS);
-
-    // Double check conditions before hard delete
-    const result = await User.collection.deleteOne({
-      _id: new Types.ObjectId(userId),
-      deleted: true,
-      deletedAt: { $lte: retentionDate },
-    });
-
-    if (result.deletedCount === 0) {
-      logger.info(`Purge skipped for user ${userId}: Conditions not met or already deleted.`);
-      return { deleted: false, reason: 'Conditions not met or already deleted' };
-    }
-
-    logger.info(`User hard deleted successfully: ${userId}`);
-    return { deleted: true, userId };
+  const { userId } = job.data;
+  if (!userId) {
+    throw new Error(`Purge job ${job.id} has no userId`);
   }
-}
+
+  const retentionDate = new Date(Date.now() - config.USER_DELETION_RETENTION_MS);
+  // The raw collection on purpose: the model blocks hard deletes everywhere else
+  const { deletedCount } = await User.collection.deleteOne({
+    _id: new Types.ObjectId(userId),
+    deleted: true,
+    deletedAt: { $lte: retentionDate },
+  });
+
+  const deleted = deletedCount === 1;
+  logger.info(deleted ? 'User purged' : 'User purge skipped', {
+    event: deleted ? 'user.purge.completed' : 'user.purge.skipped',
+    userId,
+  });
+  return { deleted, userId };
+};

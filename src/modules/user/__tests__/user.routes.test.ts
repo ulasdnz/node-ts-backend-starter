@@ -7,13 +7,15 @@ import { config } from '../../../config/index.js';
 import { initExpress } from '../../../core/loaders/express.js';
 import { AuditLog } from '../../../database/plugins/audit-log.model.js';
 import { flushAuditLogs } from '../../../database/plugins/audit-log.plugin.js';
-import { purgeQueue } from '../../../jobs/queues.js';
+import { cancelPurge, schedulePurge } from '../../../jobs/cleanup/purge.queue.js';
+import { logger } from '../../../lib/logger.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
 import { createLoginProtection, type LoginProtection } from '../login-protection.js';
 import User from '../user.model.js';
 
-vi.mock('../../../jobs/queues.js', () => ({
-  purgeQueue: { add: vi.fn(), getJob: vi.fn() },
+vi.mock('../../../jobs/cleanup/purge.queue.js', () => ({
+  schedulePurge: vi.fn(),
+  cancelPurge: vi.fn(),
 }));
 
 // The client never becomes ready: rate limits run on their in-memory fallback
@@ -84,6 +86,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.mocked(schedulePurge).mockReset().mockResolvedValue(undefined);
+  vi.mocked(cancelPurge).mockReset().mockResolvedValue(undefined);
   protection.current = createLoginProtection({
     maxConsecutiveFails: 5,
     blockDurationSeconds: 900,
@@ -196,16 +200,29 @@ describe('login', () => {
     const { body } = await register('back@example.com');
     const userId = body.data._id as string;
     await User.softDeleteById(userId);
-    const purgeJob = { remove: vi.fn().mockResolvedValue(undefined) };
-    vi.mocked(purgeQueue.getJob).mockResolvedValueOnce(purgeJob as never);
 
     const res = await login('back@example.com');
 
     expect(res.status).toBe(200);
     expect(res.body.message).toEqual(expect.any(String));
-    expect(purgeQueue.getJob).toHaveBeenCalledWith(`purge-user-${userId}`);
-    expect(purgeJob.remove).toHaveBeenCalledTimes(1);
+    expect(cancelPurge).toHaveBeenCalledWith(userId);
     expect((await User.findById(userId))?.deleted).toBe(false);
+  });
+
+  it('still signs a restored account in when its purge cannot be cancelled', async () => {
+    const { body } = await register('stale-job@example.com');
+    await User.softDeleteById(body.data._id as string);
+    vi.mocked(cancelPurge).mockRejectedValueOnce(new Error('redis unreachable'));
+    const warn = vi.spyOn(logger, 'warn');
+
+    const res = await login('stale-job@example.com');
+
+    // The purge job checks the user again before deleting anything, so a stale one is harmless
+    expect(res.status).toBe(200);
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ event: 'user.purge.cancel_failed' }),
+    );
   });
 });
 
@@ -311,5 +328,36 @@ describe('profile and user list', () => {
 
     expect(deletion.status).toBe(200);
     expect((await getMe(token)).status).toBe(401);
+  });
+});
+
+describe('account deletion', () => {
+  const deleteMe = (token: string) =>
+    request(app).delete('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
+
+  it('soft deletes the account and schedules its purge', async () => {
+    const { body } = await register('purged@example.com');
+    const token = await signIn('purged@example.com');
+
+    const res = await deleteMe(token);
+
+    expect(res.status).toBe(200);
+    expect(schedulePurge).toHaveBeenCalledWith(body.data._id);
+    expect((await User.findById(body.data._id as string).withDeleted())?.deleted).toBe(true);
+  });
+
+  it('rolls the soft delete back when scheduling the purge fails', async () => {
+    const { body } = await register('kept@example.com');
+    const token = await signIn('kept@example.com');
+    vi.mocked(schedulePurge).mockRejectedValueOnce(new Error('redis unreachable'));
+    const error = vi.spyOn(logger, 'error');
+
+    const res = await deleteMe(token);
+
+    expect(res.status).toBe(500);
+    expect(error).toHaveBeenCalled();
+    // Not left half-deleted: the account is active, and its token still works
+    expect((await User.findById(body.data._id as string))?.deleted).toBe(false);
+    expect((await getMe(token)).status).toBe(200);
   });
 });

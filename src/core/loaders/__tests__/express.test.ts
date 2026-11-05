@@ -12,10 +12,6 @@ vi.mock('../../../lib/redis.js', async () => {
   return { redisClient, createRedisClient: () => redisClient };
 });
 
-vi.mock('../../../jobs/queues.js', () => ({
-  purgeQueue: { add: vi.fn(), getJob: vi.fn() },
-}));
-
 setupTestDatabase();
 
 let app: Express;

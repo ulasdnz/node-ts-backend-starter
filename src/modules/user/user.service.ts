@@ -1,8 +1,7 @@
-import { config } from '../../config/index.js';
 import CustomError from '../../core/errors/index.js';
 import { detectImageExtension } from '../../core/middleware/upload.js';
 import type { MongoError } from '../../core/types/mongo.types.js';
-import { purgeQueue } from '../../jobs/queues.js';
+import { cancelPurge, schedulePurge } from '../../jobs/cleanup/purge.queue.js';
 import { logger } from '../../lib/logger.js';
 import { storage } from '../../lib/storage.js';
 import { type Page, paginate } from '../../utils/pagination.js';
@@ -56,9 +55,16 @@ export async function loginUser(data: LoginInput, ip: string): Promise<AuthRespo
   let wasRestored = false;
   if (user.deleted) {
     await user.restore();
-
-    const job = await purgeQueue.getJob(`purge-user-${user.id}`);
-    if (job) await job.remove();
+    try {
+      await cancelPurge(user.id);
+    } catch (error) {
+      // The pending purge re-checks the user before deleting anything, so one left behind is harmless
+      logger.warn('Purge of a restored account could not be cancelled', {
+        event: 'user.purge.cancel_failed',
+        userId: user.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     await invalidateAuthContext(user.id);
 
     wasRestored = true;
@@ -104,24 +110,23 @@ export async function deleteUser(userId: string): Promise<void> {
   if (!user) {
     throw new CustomError(404, 'user.not_found');
   }
-  await invalidateAuthContext(userId);
 
-  const jobId = `purge-user-${userId}`;
-
-  const existingJob = await purgeQueue.getJob(jobId);
-  if (existingJob) {
-    await existingJob.remove();
-    logger.info(`Existing purge job removed for user ${userId}`);
+  try {
+    await schedulePurge(userId);
+  } catch (error) {
+    // A delete the purge never follows would be a broken promise to the user: undo it, so the
+    // request fails as a whole and can be retried
+    await User.restoreById(userId).catch((rollbackError: unknown) => {
+      logger.error('Account deletion could not be rolled back', {
+        event: 'user.delete.rollback_failed',
+        userId,
+        error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+      });
+    });
+    throw error;
   }
 
-  await purgeQueue.add(
-    'purge-user',
-    { userId: userId },
-    {
-      jobId: jobId,
-      delay: config.USER_DELETION_RETENTION_MS,
-    },
-  );
+  await invalidateAuthContext(userId);
 }
 
 export async function updateUser(userId: string, data: Partial<IUser>): Promise<UserResponse> {

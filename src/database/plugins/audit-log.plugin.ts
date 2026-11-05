@@ -1,5 +1,5 @@
 import { Document, type Query, type Schema, Types } from 'mongoose';
-import { getContext } from '../../core/middleware/request-context.js';
+import { getContext, SYSTEM_USER_ID } from '../../core/middleware/request-context.js';
 import { logger } from '../../lib/logger.js';
 import { AuditLog, type AuditOperation } from './audit-log.model.js';
 
@@ -71,9 +71,10 @@ const changedPaths = (doc: Document): Record<string, unknown> | null => {
 const currentActor = () => {
   const context = getContext();
   return {
-    userId: context ? (context.userId ?? 'anonymous') : 'system',
+    userId: context ? (context.userId ?? 'anonymous') : SYSTEM_USER_ID,
     traceId: context?.traceId ?? null,
-    ip: context?.ip ?? null,
+    // Work outside HTTP requests has an empty ip
+    ip: context?.ip || null,
   };
 };
 
