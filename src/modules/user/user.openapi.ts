@@ -17,7 +17,7 @@ const timestamp = z.iso.datetime();
  * Mongoose's `__v`). The password hash and the token version never do.
  */
 export const userSchema = z
-  .object({
+  .looseObject({
     _id: z.string().regex(/^[0-9a-f]{24}$/),
     email: z.email(),
     name: z.string(),
