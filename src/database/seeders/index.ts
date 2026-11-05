@@ -1,13 +1,16 @@
 import { config } from '../../config/index.js';
 import { logger } from '../../lib/logger.js';
 import { connectDB, disconnectDB } from '../../utils/db.js';
+import { assertSeedingAllowed } from './guard.js';
 import { seedUsers } from './user.seeder.js';
 
 /** `npm run seed`: replaces every user with development data, over a single connection. */
 const seed = async (): Promise<void> => {
-  if (config.NODE_ENV === 'production') {
-    throw new Error('Seeding deletes every user and is disabled in production');
-  }
+  assertSeedingAllowed({
+    nodeEnv: config.NODE_ENV,
+    mongoUri: config.MONGO_URI,
+    allowRemote: process.argv.includes('--allow-remote'),
+  });
 
   await connectDB();
   try {
