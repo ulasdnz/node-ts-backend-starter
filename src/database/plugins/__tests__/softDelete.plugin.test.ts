@@ -23,7 +23,7 @@ describe('softDeletePlugin', () => {
     testSchema.plugin(softDeletePlugin);
 
     TestModel =
-      (mongoose.models.SoftDeleteTest as SoftDeleteModel<ITestDoc>) ||
+      (mongoose.models.SoftDeleteTest as unknown as SoftDeleteModel<ITestDoc> | undefined) ||
       mongoose.model<ITestDoc, SoftDeleteModel<ITestDoc>>('SoftDeleteTest', testSchema);
   });
 

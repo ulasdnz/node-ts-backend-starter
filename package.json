@@ -25,19 +25,25 @@
     "url": "https://github.com/ulasdnz/node-ts-backend-starter/issues"
   },
   "homepage": "https://github.com/ulasdnz/node-ts-backend-starter#readme",
+  "engines": {
+    "node": ">=26"
+  },
   "scripts": {
-    "build": "tsc && xcopy /E /I /Y src\\utils\\lang dist\\utils\\lang",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/app.js",
-    "dev": "tsx watch src/app.ts",
-    "seed": "tsx src/database/seeders/index.ts",
-    "migrate": "tsx src/database/migrations/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/app.ts",
+    "seed": "tsx --env-file-if-exists=.env src/database/seeders/index.ts",
+    "migrate": "tsx --env-file-if-exists=.env src/database/migrations/index.ts",
+    "migrate:prod": "node dist/database/migrations/index.js",
     "migration:create": "tsx src/scripts/create-migration.ts",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "check": "npm run lint && npm run typecheck && npm test",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -82,7 +88,6 @@
     "bullmq": "^5.81.5",
     "compression": "^1.8.2",
     "cors": "^2.8.6",
-    "dotenv": "^17.2.3",
     "express": "^5.3.0",
     "helmet": "^8.1.0",
     "i18next": "^25.8.14",
