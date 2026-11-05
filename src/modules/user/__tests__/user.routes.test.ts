@@ -2,7 +2,10 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { initLoaders } from '../../../core/loaders/index.js';
+import { setupTestDatabase } from '../../../test/helpers/database.js';
 import User from '../user.model.js';
+
+setupTestDatabase();
 
 vi.mock('../../../core/loaders/mongoose', () => ({
   initMongoose: vi.fn(),

@@ -1,6 +1,7 @@
 import { MongoServerError } from 'mongodb';
 import mongoose, { Schema, Types } from 'mongoose';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { setupTestDatabase } from '../../../test/helpers/database.js';
 import {
   softDeletePlugin,
   type SoftDeleteDocument,
@@ -14,6 +15,8 @@ interface ITestDoc extends SoftDeleteDocument {
 
 let TestModel: SoftDeleteModel<ITestDoc>;
 
+setupTestDatabase();
+
 describe('softDeletePlugin', () => {
   beforeAll(async () => {
     const testSchema = new Schema<ITestDoc>({
@@ -25,16 +28,6 @@ describe('softDeletePlugin', () => {
     TestModel =
       (mongoose.models.SoftDeleteTest as unknown as SoftDeleteModel<ITestDoc> | undefined) ||
       mongoose.model<ITestDoc, SoftDeleteModel<ITestDoc>>('SoftDeleteTest', testSchema);
-  });
-
-  afterEach(async () => {
-    if (mongoose.connection.readyState !== 0) {
-      try {
-        await mongoose.connection.collection('softdeletetests').deleteMany({});
-      } catch {
-        // Collection might not exist yet
-      }
-    }
   });
 
   describe('Schema Additions', () => {
