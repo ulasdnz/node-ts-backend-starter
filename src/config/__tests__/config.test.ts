@@ -77,4 +77,10 @@ describe('envSchema', () => {
     expect(envSchema.parse(base({ JWT_EXPIRES_IN: '15m' })).JWT_EXPIRES_IN).toBe('15m');
     expect(envSchema.safeParse(base({ JWT_EXPIRES_IN: 'one day' })).success).toBe(false);
   });
+
+  it('rejects a JWT_EXPIRES_IN without a unit, which jsonwebtoken reads as milliseconds', () => {
+    // "3600" would make every token expire after 3.6 seconds
+    expect(envSchema.safeParse(base({ JWT_EXPIRES_IN: '3600' })).success).toBe(false);
+    expect(envSchema.parse(base({ JWT_EXPIRES_IN: '3600s' })).JWT_EXPIRES_IN).toBe('3600s');
+  });
 });

@@ -70,12 +70,13 @@ export const envSchema = z
     RATE_LIMIT_POINTS: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_DURATION_SECONDS: z.coerce.number().int().positive().default(60),
     SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
-    // A duration in jsonwebtoken's short format: 15m, 12h, 1d...
+    // A duration in jsonwebtoken's short format: 900s, 15m, 12h, 1d. The unit is required, because
+    // jsonwebtoken reads a bare number in a string as milliseconds: '3600' would last 3.6 seconds.
     JWT_EXPIRES_IN: z
       .string()
       .trim()
-      .regex(/^\d+(ms|s|m|h|d|w|y)?$/, {
-        message: 'JWT_EXPIRES_IN must be a duration such as 15m, 12h or 1d',
+      .regex(/^\d+(s|m|h|d|w|y)$/, {
+        message: 'JWT_EXPIRES_IN must be a duration with a unit, such as 900s, 15m, 12h or 1d',
       })
       .default('1d'),
     BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(10),
