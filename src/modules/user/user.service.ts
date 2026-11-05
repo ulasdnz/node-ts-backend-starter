@@ -2,8 +2,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { config } from '../../config/index.js';
 import CustomError from '../../core/errors/index.js';
+import { detectImageExtension } from '../../core/middleware/upload.js';
 import { purgeQueue } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
+import { storage } from '../../lib/storage.js';
 import User, { type IUser } from './user.model.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type { LoginInput, RegisterInput, UserQueryInput } from './user.validators.js';
@@ -111,23 +113,31 @@ export async function updateAvatar(
   userId: string,
   file: Express.Multer.File,
 ): Promise<UserResponse> {
+  // The content decides, not the client's file name or Content-Type
+  const extension = detectImageExtension(file.buffer);
+  if (!extension) {
+    throw new CustomError(400, 'upload.only_images');
+  }
+
   const user = await User.findById(userId);
   if (!user) {
     throw new CustomError(404, 'user.not_found');
   }
 
-  if (user.photoUrl && !user.photoUrl.includes('node.js_logo')) {
-    const oldFilePath = user.photoUrl.replace('/uploads/', 'uploads/');
-    try {
-      const fs = await import('fs/promises');
-      await fs.unlink(oldFilePath);
-    } catch {
-      logger.warn(`Failed to delete old avatar: ${oldFilePath}`);
-    }
-  }
-
-  user.photoUrl = `/uploads/${file.filename}`;
+  const previousPhotoUrl = user.photoUrl;
+  user.photoUrl = await storage.save(file.buffer, extension);
   await user.save();
+
+  // Only files this app stored are removed; the default avatar is an external URL
+  if (previousPhotoUrl?.startsWith('/uploads/')) {
+    await storage.remove(previousPhotoUrl).catch((error: unknown) => {
+      logger.warn('Previous avatar could not be removed', {
+        event: 'user.avatar.cleanup_failed',
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 
   return user;
 }

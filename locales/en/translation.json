@@ -24,7 +24,9 @@
     "avatar_required": "Avatar file is required"
   },
   "upload": {
-    "only_images": "Only images are allowed!"
+    "only_images": "Only JPEG, PNG or WebP images are allowed.",
+    "file_too_large": "The file is too large. The limit is 5 MB.",
+    "invalid_file": "The upload could not be processed. Send a single file in the expected field."
   },
   "success": {
     "register": "User registered successfully",

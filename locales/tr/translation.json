@@ -24,7 +24,9 @@
     "avatar_required": "Avatar dosyası gereklidir"
   },
   "upload": {
-    "only_images": "Sadece resim yükleyebilirsiniz!"
+    "only_images": "Yalnızca JPEG, PNG veya WebP görselleri yüklenebilir.",
+    "file_too_large": "Dosya çok büyük. Sınır 5 MB.",
+    "invalid_file": "Yükleme işlenemedi. Beklenen alanda tek bir dosya gönderin."
   },
   "success": {
     "register": "Kullanıcı başarıyla kaydedildi",
