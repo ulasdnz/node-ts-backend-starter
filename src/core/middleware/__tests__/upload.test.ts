@@ -71,4 +71,14 @@ describe('uploadImage', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('upload.invalid_file');
   });
+
+  it('rejects text fields so the request body stays bounded', async () => {
+    const res = await request(buildApp())
+      .post('/avatar')
+      .field('note', 'x'.repeat(1024))
+      .attach('photo', PNG, 'photo.png');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('upload.invalid_file');
+  });
 });

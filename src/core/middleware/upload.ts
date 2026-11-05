@@ -37,7 +37,8 @@ export const uploadImage = (
 ): RequestHandler => {
   const single = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: maxBytes, files: 1 },
+    // One file and nothing else: text fields would otherwise be buffered in memory without a cap
+    limits: { fileSize: maxBytes, files: 1, fields: 0, parts: 1 },
   }).single(field);
 
   return (req, res, next) => {
