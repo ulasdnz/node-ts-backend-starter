@@ -9,7 +9,9 @@ import { AuditLog } from '../../../database/plugins/audit-log.model.js';
 import { flushAuditLogs } from '../../../database/plugins/audit-log.plugin.js';
 import { cancelPurge, schedulePurge } from '../../../jobs/cleanup/purge.queue.js';
 import { logger } from '../../../lib/logger.js';
+import { storage } from '../../../lib/storage.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
+import { expectDocumentedResponse } from '../../../test/helpers/openapi.js';
 import { createLoginProtection, type LoginProtection } from '../login-protection.js';
 import User from '../user.model.js';
 
@@ -43,13 +45,35 @@ setupTestDatabase();
 const PASSWORD = 'Password123!';
 let app: Express;
 
-const register = (email: string, password = PASSWORD) =>
-  request(app)
-    .post('/api/v1/auth/register')
-    .send({ email, password, name: 'Test', surname: 'User' });
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+
+// Every response a test gets through these helpers is also checked against the OpenAPI document
+const documented = async <T extends { status: number; body: unknown }>(
+  pending: PromiseLike<T>,
+  method: 'get' | 'post' | 'patch' | 'delete',
+  path: string,
+): Promise<T> => {
+  const res = await pending;
+  expectDocumentedResponse(res, method, path);
+  return res;
+};
+
+const register = (email: string, password = PASSWORD, headers: Record<string, string> = {}) =>
+  documented(
+    request(app)
+      .post('/api/v1/auth/register')
+      .set(headers)
+      .send({ email, password, name: 'Test', surname: 'User' }),
+    'post',
+    '/api/v1/auth/register',
+  );
 
 const login = (email: string, password = PASSWORD) =>
-  request(app).post('/api/v1/auth/login').send({ email, password });
+  documented(
+    request(app).post('/api/v1/auth/login').send({ email, password }),
+    'post',
+    '/api/v1/auth/login',
+  );
 
 const signIn = async (email: string, password = PASSWORD): Promise<string> => {
   const res = await login(email, password);
@@ -72,13 +96,35 @@ const tokenOfVersion = (userId: string, version: number): string =>
   });
 
 const getMe = (token: string) =>
-  request(app).get('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
+  documented(
+    request(app).get('/api/v1/users/me').set('Authorization', `Bearer ${token}`),
+    'get',
+    '/api/v1/users/me',
+  );
 
 const changePassword = (token: string, body: { currentPassword: string; newPassword: string }) =>
-  request(app)
-    .patch('/api/v1/users/me/password')
-    .set('Authorization', `Bearer ${token}`)
-    .send(body);
+  documented(
+    request(app)
+      .patch('/api/v1/users/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send(body),
+    'patch',
+    '/api/v1/users/me/password',
+  );
+
+const deleteMe = (token: string) =>
+  documented(
+    request(app).delete('/api/v1/users/me').set('Authorization', `Bearer ${token}`),
+    'delete',
+    '/api/v1/users/me',
+  );
+
+const listUsers = (token: string, query = '') =>
+  documented(
+    request(app).get(`/api/v1/users${query}`).set('Authorization', `Bearer ${token}`),
+    'get',
+    '/api/v1/users',
+  );
 
 beforeAll(async () => {
   app = await initExpress();
@@ -106,7 +152,9 @@ describe('registration', () => {
   });
 
   it('records the registration in the audit log with the request as the actor', async () => {
-    const res = await register('audited@example.com').set('X-Trace-Id', 'trace-register-1');
+    const res = await register('audited@example.com', PASSWORD, {
+      'X-Trace-Id': 'trace-register-1',
+    });
     await flushAuditLogs();
 
     const entry = await AuditLog.findOne({ model: 'User', documentId: res.body.data._id }).lean();
@@ -228,7 +276,7 @@ describe('login', () => {
   it('does not bring back the tokens of an account deleted and then restored', async () => {
     await register('returning@example.com');
     const beforeDeletion = await signIn('returning@example.com');
-    await request(app).delete('/api/v1/users/me').set('Authorization', `Bearer ${beforeDeletion}`);
+    await deleteMe(beforeDeletion);
 
     const restored = await login('returning@example.com');
 
@@ -338,9 +386,7 @@ describe('profile and user list', () => {
     const adminToken = await registerAdmin('reader@example.com');
 
     const profile = await getMe(adminToken);
-    const list = await request(app)
-      .get('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`);
+    const list = await listUsers(adminToken);
 
     expect([profile.status, list.status]).toEqual([200, 200]);
     expect(profile.body).not.toHaveProperty('message');
@@ -351,9 +397,7 @@ describe('profile and user list', () => {
     const adminToken = await registerAdmin('admin@example.com');
     for (const name of ['a', 'b', 'c']) await register(`${name}@list.example.com`);
 
-    const res = await request(app)
-      .get('/api/v1/users?limit=2&page=2&sort=email')
-      .set('Authorization', `Bearer ${adminToken}`);
+    const res = await listUsers(adminToken, '?limit=2&page=2&sort=email');
 
     expect(res.status).toBe(200);
     expect(res.body.meta.pagination).toEqual({ page: 2, limit: 2, total: 4, totalPages: 2 });
@@ -366,9 +410,7 @@ describe('profile and user list', () => {
   it('rejects a page size above 100', async () => {
     const adminToken = await registerAdmin('limits@example.com');
 
-    const res = await request(app)
-      .get('/api/v1/users?limit=101')
-      .set('Authorization', `Bearer ${adminToken}`);
+    const res = await listUsers(adminToken, '?limit=101');
 
     expect(res.status).toBe(400);
     expect(res.body.error.details).toEqual([
@@ -382,19 +424,68 @@ describe('profile and user list', () => {
     // Caches the auth context, which the deletion has to invalidate
     expect((await getMe(token)).status).toBe(200);
 
-    const deletion = await request(app)
-      .delete('/api/v1/users/me')
-      .set('Authorization', `Bearer ${token}`);
+    const deletion = await deleteMe(token);
 
     expect(deletion.status).toBe(200);
     expect((await getMe(token)).status).toBe(401);
   });
 });
 
-describe('account deletion', () => {
-  const deleteMe = (token: string) =>
-    request(app).delete('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
+describe('profile updates and admin reads', () => {
+  it('updates the signed-in user', async () => {
+    await register('renamed@example.com');
+    const token = await signIn('renamed@example.com');
 
+    const res = await documented(
+      request(app)
+        .patch('/api/v1/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Renamed' }),
+      'patch',
+      '/api/v1/users/me',
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.name).toBe('Renamed');
+  });
+
+  it('replaces the avatar with an uploaded image', async () => {
+    const save = vi.spyOn(storage, 'save').mockResolvedValue('/uploads/portrait.png');
+    await register('portrait@example.com');
+    const token = await signIn('portrait@example.com');
+
+    const res = await documented(
+      request(app)
+        .patch('/api/v1/users/me/avatar')
+        .set('Authorization', `Bearer ${token}`)
+        .attach('photo', PNG, { filename: 'portrait.png', contentType: 'image/png' }),
+      'patch',
+      '/api/v1/users/me/avatar',
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.photoUrl).toBe('/uploads/portrait.png');
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an admin read any user by id', async () => {
+    const adminToken = await registerAdmin('reader-admin@example.com');
+    const { body } = await register('subject@example.com');
+
+    const res = await documented(
+      request(app)
+        .get(`/api/v1/users/${body.data._id as string}`)
+        .set('Authorization', `Bearer ${adminToken}`),
+      'get',
+      '/api/v1/users/{id}',
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.email).toBe('subject@example.com');
+  });
+});
+
+describe('account deletion', () => {
   it('soft deletes the account and schedules its purge', async () => {
     const { body } = await register('purged@example.com');
     const token = await signIn('purged@example.com');

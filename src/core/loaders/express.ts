@@ -12,6 +12,7 @@ import userRoutes from '../../modules/user/user.routes.js';
 import { createErrorHandler, notFoundHandler } from '../middleware/error-handler.js';
 import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
+import type { MountedRouter } from '../route-table.js';
 import { createRouter } from '../router.js';
 import { isShuttingDown } from '../shutdown.js';
 import { mountDocs } from './docs.js';
@@ -50,13 +51,12 @@ export const initExpress = async (): Promise<Express> => {
   app.use(i18nMiddleware);
 
   // Infrastructure endpoints sit outside /api, so probes are never rate limited
-  app.use(
-    createHealthRouter({
-      probes: [mongoProbe(), redisProbe(redisClient)],
-      logger,
-      isShuttingDown,
-    }),
-  );
+  const healthRouter = createHealthRouter({
+    probes: [mongoProbe(), redisProbe(redisClient)],
+    logger,
+    isShuttingDown,
+  });
+  app.use(healthRouter);
   app.use('/uploads', express.static(UPLOADS_DIRECTORY, { index: false }));
 
   const api = createRouter();
@@ -70,6 +70,14 @@ export const initExpress = async (): Promise<Express> => {
   );
   api.use('/v1', userRoutes);
   app.use('/api', api);
+
+  // Where each router above is mounted. The OpenAPI parity test reads this to compare the routes the
+  // application serves with the ones the document describes.
+  const mountedRouters: MountedRouter[] = [
+    { base: '', router: healthRouter },
+    { base: '/api/v1', router: userRoutes },
+  ];
+  app.locals.mountedRouters = mountedRouters;
 
   // Outside /api as well: the docs are not rate limited
   await mountDocs(app, { nodeEnv: config.NODE_ENV });
