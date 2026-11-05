@@ -1,21 +1,21 @@
-# Production-Ready Node.js Backend Starter
+# node-ts-backend-starter
 
-A production-ready boilerplate for building RESTful APIs with **Node.js**, **Express 5**,
-**Mongoose** and **TypeScript**.
+A REST API starter for **Node.js 26**, **Express 5**, **Mongoose 9** and **TypeScript**, with the
+parts a production service needs from its first deploy: revocable JWTs, brute-force protection,
+request validation and an OpenAPI document built from the same **Zod** schemas, soft delete with a
+delayed purge, an audit log, tracked migrations, **BullMQ** jobs, structured logs and graceful
+shutdown. The test suite needs neither Docker nor a running database.
 
-It comes with **JWT authentication** whose tokens can be revoked, **brute-force protection** for
-sign-in, **request validation** with **Zod**, **background jobs** with **BullMQ**, **Redis-backed
-rate limiting and caching**, **structured JSON logging** ready for Google Cloud Logging, an **audit
-log**, tracked **migrations** and **multilanguage** messages with **i18next**. It is designed for
-operational excellence: **AsyncLocalStorage tracing**, **Kubernetes-ready health checks**, graceful
-shutdown, and a defensive **Soft Delete** architecture protected by custom ESLint rules and Husky.
+- [Quick start](#quick-start)
+- [API](#api)
+- [Architecture](#architecture)
+- [Design decisions](#design-decisions)
+- [Configuration](#configuration)
+- [Tests](#tests)
+- [Project structure](#project-structure)
+- [Known limitations](#known-limitations)
 
-Docker containerization, email verification, password reset by email, Prometheus metrics, and API
-documentation could be added in the future.
-
-<br />
-
-## Installation & Running
+## Quick start
 
 Requires Node.js 26 or later, MongoDB and Redis.
 
@@ -23,12 +23,16 @@ Requires Node.js 26 or later, MongoDB and Redis.
 git clone https://github.com/ulasdnz/node-ts-backend-starter.git
 cd node-ts-backend-starter
 npm install
-cp .env.example .env   # then fill in the values, see Environment Variables
-npm run migrate        # applies migrations and builds indexes
-npm run dev
+cp .env.example .env   # set MONGO_URI, REDIS_URL and JWT_SECRET, see Configuration
+npm run migrate        # applies pending migrations, then builds indexes
+npm run dev            # http://localhost:3000, with Swagger UI at /docs
 ```
 
-In production, build once, run the migrate step before the new version starts, then start it:
+`npm run seed` replaces every user with an admin, `admin@example.com`, and ten users
+(`user1@example.com` onwards), all signing in with `Password123!`. It refuses to run in production,
+and against a `MONGO_URI` on another machine unless run as `npm run seed -- --allow-remote`.
+
+In production, build once, run the migrations before the new version takes traffic, then start it:
 
 ```bash
 npm run build
@@ -36,735 +40,330 @@ npm run migrate:prod
 npm start
 ```
 
-### Scripts
+| Script                             | What it does                                                       |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `npm run dev`                      | Starts the API with `.env` and restarts it on changes              |
+| `npm run build` / `npm start`      | Compiles the app into an emptied `dist/` / runs the compiled app   |
+| `npm run migrate` / `migrate:prod` | Applies pending migrations, then builds indexes (source / `dist/`) |
+| `npm run migration:create <name>`  | Creates a timestamped migration from the template                  |
+| `npm run seed`                     | Replaces every user with development data                          |
+| `npm test` / `test:coverage`       | Runs the tests / runs them with coverage and its thresholds        |
+| `npm run lint` / `typecheck`       | ESLint with type information / `tsc --noEmit`                      |
+| `npm run check`                    | Lint, typecheck and tests                                          |
 
-| Script                                 | What it does                                                       |
-| -------------------------------------- | ------------------------------------------------------------------ |
-| `npm run dev`                          | Starts the API and restarts it on changes                          |
-| `npm run build`                        | Empties `dist/` and compiles the app into it                       |
-| `npm start`                            | Runs the compiled app                                              |
-| `npm run migrate` / `migrate:prod`     | Applies pending migrations, then builds indexes (source / `dist/`) |
-| `npm run migration:create <name>`      | Creates a migration file from the template                         |
-| `npm run seed`                         | Replaces every user with development data; refused in production   |
-| `npm test` / `npm run test:coverage`   | Runs the tests against an in-memory MongoDB; no Redis needed       |
-| `npm run lint` / `typecheck` / `check` | ESLint with type information, `tsc`, or both followed by the tests |
+## API
 
-<br />
+The API is described by an OpenAPI 3.1 document generated at startup with
+[zod-openapi](https://github.com/samchungy/zod-openapi). Request bodies, path parameters and query
+parameters are built from the Zod schemas that validate them; the avatar upload, which multer checks
+instead, is described by hand. Each module's `*.openapi.ts` adds the response schemas.
 
-## Table of Contents
+- `GET /docs.json` serves the document in every environment.
+- `GET /docs` serves Swagger UI outside production. In production it answers `404`.
 
-- [Installation & Running](#installation--running)
-- [Features](#features)
-- [Environment Variables](#environment-variables)
-- [Database Management](#database-management)
-- [Project Structure](#project-structure)
-- [API Reference](#api-reference)
-- [Architecture & Design Decisions](#architecture--design-decisions)
-  - [Soft Delete Architecture](#-soft-delete-plugin-mechanism)
-- [Resilience](#resilience)
-- [Observability & Error Semantics](#observability--error-semantics)
+| Method | Path                        | Auth   | Description                                           |
+| ------ | --------------------------- | ------ | ----------------------------------------------------- |
+| POST   | `/api/v1/auth/register`     | —      | Register a user                                       |
+| POST   | `/api/v1/auth/login`        | —      | Sign in; restores a deleted account not yet purged    |
+| GET    | `/api/v1/users/me`          | Bearer | Get the signed-in user                                |
+| PATCH  | `/api/v1/users/me`          | Bearer | Update the signed-in user                             |
+| PATCH  | `/api/v1/users/me/password` | Bearer | Change the password; returns a new token              |
+| PATCH  | `/api/v1/users/me/avatar`   | Bearer | Upload a new avatar                                   |
+| DELETE | `/api/v1/users/me`          | Bearer | Delete the account; purged after the retention period |
+| GET    | `/api/v1/users`             | Admin  | List users, page by page                              |
+| GET    | `/api/v1/users/{id}`        | Admin  | Get a user by id, deleted users included              |
+| GET    | `/health`                   | —      | Every dependency, for inspection                      |
+| GET    | `/health/ready`             | —      | Readiness probe: should traffic be routed here?       |
+| GET    | `/health/live`              | —      | Liveness probe: should the process be restarted?      |
 
-<br />
+_Bearer_ takes the token of any signed-in user, _Admin_ the token of an admin.
 
-## Features
-
-- **NoSQL Database:** **MongoDB** object data modeling using **Mongoose**.
-- **Mongoose Soft Delete Plugin:** a defensive 3-layer **Soft Delete** architecture (plugin + ESLint
-  and Husky prevention + BullMQ purging).
-- **Audit Log:** a Mongoose plugin records who created, changed or removed a document, with the
-  request's user, trace id and IP, and sensitive fields masked.
-- **Background Jobs:** queues and workers built by one factory with retries, retention and trace id
-  propagation, using **Redis** and **BullMQ**.
-- **Authentication & Authorization:** stateless **JWT**s that carry only the user id and a token
-  version. Role and account state come from a Redis-cached auth context. A password change or an
-  account restore moves the user to a new token version, which revokes every older token at once,
-  and a deleted account's tokens stop working at once. Role-based access control on top.
-- **Login Protection:** consecutive failures lock an email and IP pair, a daily budget caps failures
-  per IP, and unknown emails cost the same bcrypt work as wrong passwords. The current-password
-  check of a password change counts toward the same limits.
-- **Validation:** request body, params and query validated with **Zod**; errors name the field.
-- **Pagination:** page, limit and sort, with an allow list of sort fields and a stable order.
-- **Migrations:** tracked, locked against concurrent runs, and run as a deploy step that also builds
-  indexes.
-- **Logging & Observability:** structured **Winston** logs (JSON with Cloud Logging severity in
-  production, readable lines in development) and request tracing via **AsyncLocalStorage**.
-- **Testing:** unit and integration tests with **Vitest**, **supertest** and an in-memory MongoDB.
-- **Rate Limiting:** distributed rate limiting backed by **Redis**, with an in-memory fallback.
-- **Multilanguage Support:** localized messages (English and Turkish) using **i18next**.
-- **Health Checks:** Kubernetes-ready endpoints (`/health`, `/health/ready`, `/health/live`).
-- **Graceful Shutdown:** in-flight requests finish, then jobs, Redis and MongoDB close in order.
-- **Code Quality:** **ESLint** with type information and custom Mongoose rules, **Prettier**, and
-  **Husky** git hooks (lint-staged, commitlint).
-- **Environment Configuration:** type-safe configuration validated with **Zod** at startup; invalid
-  values stop the app before it serves anything.
-- **Error Handling:** one error handler and one JSON error contract; stack traces only in
-  development.
-- **Compression:** response body compression using **compression** (gzip).
-- **File Uploading:** multipart/form-data handling using **Multer**, with content-based image
-  checks.
-- **Security:** security HTTP headers using **Helmet**.
-- **CORS:** Cross-Origin Resource Sharing using **cors**.
-
-<br />
-
-### Environment Variables
-
-Copy `.env.example` to `.env` for local development; in production the platform provides them.
-Invalid values stop the app at startup.
-
-| Variable                         | Default       | Description                                                                     |
-| -------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| `NODE_ENV`                       | `development` | `development`, `production` or `test`                                           |
-| `PORT`                           | `3000`        | HTTP port                                                                       |
-| `LOG_LEVEL`                      | `info`        | Winston log level                                                               |
-| `MONGO_URI`                      | —             | MongoDB connection string                                                       |
-| `REDIS_URL`                      | —             | Redis connection URL                                                            |
-| `JWT_SECRET`                     | —             | Token signing secret, at least 32 characters                                    |
-| `JWT_EXPIRES_IN`                 | `1d`          | Token lifetime with a unit: `900s`, `15m`, `12h`, `1d`                          |
-| `BCRYPT_SALT_ROUNDS`             | `10`          | bcrypt cost, from 4 to 15                                                       |
-| `AUTH_CONTEXT_CACHE_TTL_SECONDS` | `60`          | How long a user's role and account state stay cached in Redis                   |
-| `LOGIN_MAX_CONSECUTIVE_FAILS`    | `5`           | Failed sign-ins in a row that lock an email and IP pair                         |
-| `LOGIN_BLOCK_DURATION_SECONDS`   | `900`         | How long that lock lasts                                                        |
-| `LOGIN_MAX_FAILS_PER_IP_PER_DAY` | `100`         | Failed sign-ins one IP may make per day, across all emails                      |
-| `CORS_ORIGINS`                   | empty         | Allowed origins, comma-separated; empty allows any in development, none in prod |
-| `TRUST_PROXY`                    | `false`       | Number of proxies in front of the app; required in production                   |
-| `RATE_LIMIT_POINTS`              | `100`         | Requests allowed per client and window                                          |
-| `RATE_LIMIT_DURATION_SECONDS`    | `60`          | Rate limit window                                                               |
-| `USER_DELETION_RETENTION_DAYS`   | `30`          | Days before a deleted account is purged for good                                |
-| `SHUTDOWN_TIMEOUT_MS`            | `8000`        | How long shutdown may take before the process exits anyway                      |
-| `WORKERS_ENABLED`                | `true`        | `false` on instances that only serve HTTP; jobs then run on other instances     |
-
-<br />
-
-## Database Management
-
-### Migrations
-
-Migrations change data that already exists: backfills, renames, index drops. They run as a deploy
-step before the new version starts, never at app startup:
-
-```bash
-npm run migrate          # from source
-npm run migrate:prod     # from the build (dist/)
-```
-
-A run takes a lock, so two deploys cannot apply the same migration twice, applies pending migrations
-in file name order and records each one in the `migrations` collection. Then it builds the indexes
-the schemas declare. Index builds only add; dropping an index takes a migration of its own.
-
-Create a migration from the template:
-
-```bash
-npm run migration:create backfill-user-locale
-# Creates src/database/migrations/20261105120000-backfill-user-locale.ts
-```
-
-A migration exports `up({ db, logger })`. It works on collections through `db` rather than models,
-should be safe to run again, and is forward-only: a mistake is fixed by a new migration. See
-[`src/database/migrations/README.md`](src/database/migrations/README.md) for the details.
-
-### Seeders
-
-Replace every user with development data:
-
-```bash
-npm run seed
-```
-
-This creates the admin `admin@example.com` and ten users (`user1@example.com` onwards) from a fixed
-faker seed, so every run yields the same accounts. They all sign in with `Password123!`. Seeding
-deletes every user first, so it refuses to run in production, and refuses a `MONGO_URI` that points
-anywhere but this machine unless run as `npm run seed -- --allow-remote`.
-
-<br />
-
-## Project Structure
-
-Tests live next to the code they cover, in `__tests__` folders.
-
-```
-src/
-├── app.ts                           # Entry point: startup, signals, graceful shutdown
-├── config/                          # Zod-validated environment config
-├── core/
-│   ├── errors/                      # CustomError and its subclasses
-│   ├── loaders/                     # MongoDB, Redis, jobs and Express, started in order
-│   ├── middleware/
-│   │   ├── auth/                    # authenticate (JWT + cached auth context), authorize (roles)
-│   │   ├── error-handler.ts         # One JSON error contract for every failure
-│   │   ├── rate-limiter.ts          # Redis-backed rate limiting with an in-memory fallback
-│   │   ├── request-context.ts       # AsyncLocalStorage: trace id, IP and user per request
-│   │   ├── upload.ts                # Multer uploads with content-based image checks
-│   │   └── validate.ts              # Zod validation of body, params and query
-│   ├── types/                       # Shared and Express types
-│   ├── http-server.ts               # listen() and a graceful close
-│   └── shutdown.ts                  # Shutdown hooks, run in reverse order
-├── database/
-│   ├── migrations/                  # Migration runner, CLI and migrations
-│   ├── plugins/                     # Soft delete and audit log plugins
-│   └── seeders/                     # Development seed data
-├── jobs/
-│   ├── queue-factory.ts             # Queues and workers with defaults and trace propagation
-│   ├── index.ts                     # Starts this instance's workers
-│   └── cleanup/                     # Delayed user purge, its worker and the daily scan
-├── lib/
-│   ├── cache.ts                     # Cache-aside over Redis, with single-flight loading
-│   ├── logger.ts                    # Winston: JSON in production, readable in development
-│   ├── redis.ts                     # ioredis clients, one per role
-│   └── storage.ts                   # Avatar file storage
-├── modules/
-│   ├── health/                      # /health, /health/ready and /health/live
-│   └── user/                        # Routes, controller, service, model and validators
-│       ├── login-protection.ts      # Brute-force protection for sign-in
-│       ├── password.ts              # bcrypt hashing and timing-safe checks
-│       ├── user.auth-context.ts     # Redis-cached role and account state
-│       └── user.tokens.ts           # Token issuing
-├── scripts/                         # Migration scaffold
-├── test/                            # Test setup: in-memory MongoDB, Redis mock
-└── utils/                           # Pagination, validators, timeouts, connection helpers
-
-locales/                             # English and Turkish messages
-eslint/                              # Custom ESLint rules: no hard deletes, aggregateSafe() only
-```
-
-<br />
-
-## API Reference
+- `GET /api/v1/users` takes `page` (from 1), `limit` (1 to 100, default 20) and `sort`, a
+  comma-separated list of `createdAt`, `email`, `name` and `surname`, with `-` for descending order
+  (default `-createdAt`). `includeDeleted=true` adds deleted users and `onlyDeleted=true` lists only
+  them.
+- The avatar is one `multipart/form-data` file named `photo`: a JPEG, PNG or WebP image up to 5 MB,
+  recognized by its content rather than its name. Stored avatars are served under `/uploads`.
+- Passwords are 8 to 64 characters and at most 72 bytes, which is as much as bcrypt reads.
 
 ### Responses
 
-A successful response carries `data`, `meta` for lists, and a localized `message` for changes. Reads
-answer with data alone; sign-in has a message only when it restored a deleted account.
+| Request         | Body                                                                 |
+| --------------- | -------------------------------------------------------------------- |
+| Reads           | `{ data }`; lists add `meta.pagination`                              |
+| Changes         | `{ data, message }`; a deletion answers `{ message }` alone          |
+| Sign-in         | `{ data: { user, token } }`, with a `message` only after a restore   |
+| Password change | `{ data: { token }, message }`; the new token replaces every old one |
 
 ```json
 {
-  "data": [{ "email": "ada@example.com" }],
+  "data": [{ "_id": "6720f0c2a1b2c3d4e5f60718", "email": "ada@example.com", "role": "user" }],
   "meta": { "pagination": { "page": 1, "limit": 20, "total": 42, "totalPages": 3 } }
 }
 ```
 
-Errors follow one contract, described under
-[Structured Error Responses](#structured-error-responses).
+### Errors
 
-### Authentication
-
-| Method | Endpoint                | Description                                                  | Auth |
-| ------ | ----------------------- | ------------------------------------------------------------ | ---- |
-| POST   | `/api/v1/auth/register` | Register a user                                              | —    |
-| POST   | `/api/v1/auth/login`    | Sign in and get a token; restores an account deleted earlier | —    |
-
-- A token is an HS256 JWT whose `sub` is the user id and whose `ver` is the user's token version; it
-  carries no role. Each request reads the role, the account state and the current token version from
-  a Redis-cached auth context (`AUTH_CONTEXT_CACHE_TTL_SECONDS`).
-- A password change or an account restore moves the user to the next token version, which revokes
-  every token issued before, even one issued within the same second. Deleting an account revokes its
-  tokens too. Each of these clears the cached context, so it applies at once. A role or activation
-  change made directly in the database applies once the cached context expires.
-- Sign-in answers an unknown email and a wrong password the same way, in the same time. After
-  `LOGIN_MAX_CONSECUTIVE_FAILS` failures in a row, an email and IP pair is locked for
-  `LOGIN_BLOCK_DURATION_SECONDS` (`429` with `Retry-After`). Each IP also has a daily failure
-  budget. The current-password check of `PATCH /api/v1/users/me/password` counts toward the same
-  lock and budget, so a stolen token cannot be used to guess the password.
-- Passwords are 8 to 64 characters and at most 72 bytes, which is as much as bcrypt reads.
-
-### User Management
-
-| Method | Endpoint                    | Description                                         | Auth   |
-| ------ | --------------------------- | --------------------------------------------------- | ------ |
-| GET    | `/api/v1/users/me`          | Get the current user                                | Bearer |
-| PATCH  | `/api/v1/users/me`          | Update the current user                             | Bearer |
-| PATCH  | `/api/v1/users/me/password` | Change the password; returns a new token            | Bearer |
-| PATCH  | `/api/v1/users/me/avatar`   | Update the avatar                                   | Bearer |
-| DELETE | `/api/v1/users/me`          | Delete the account; purged after the retention days | Bearer |
-
-### Admin Routes
-
-| Method | Endpoint            | Description         | Auth         |
-| ------ | ------------------- | ------------------- | ------------ |
-| GET    | `/api/v1/users`     | List users by pages | Bearer+Admin |
-| GET    | `/api/v1/users/:id` | Get a user by id    | Bearer+Admin |
-
-`GET /api/v1/users` takes `page` (from 1), `limit` (1 to 100, default 20) and `sort`, a
-comma-separated list of `createdAt`, `email`, `name` and `surname`, with `-` for descending order
-(default `-createdAt`). `includeDeleted=true` adds deleted users and `onlyDeleted=true` lists only
-them.
-
-### Health Checks
-
-| Method | Endpoint        | Description                       |
-| ------ | --------------- | --------------------------------- |
-| GET    | `/health`       | Every dependency, for inspection  |
-| GET    | `/health/ready` | Readiness probe (traffic gating)  |
-| GET    | `/health/live`  | Liveness probe (process restarts) |
-
-<br />
-
-## Architecture & Design Decisions
-
-This section documents how **soft deletion** and **data lifecycle management** are handled in this
-codebase.
-
-## 🧩 Soft Delete Plugin (Mechanism)
-
-The soft-delete mechanism is implemented via a **custom Mongoose plugin** developed specifically for
-this project (`plugins/soft-delete.plugin.ts`). The plugin is intentionally **opt-in and
-model-scoped**. Applying it to a schema explicitly signals that:
-
-- Records must be recoverable
-- Deletion must be observable and reversible
-- Hard deletes are unsafe by default
-
-> Models that do not apply this plugin retain full freedom, including immediate hard deletes.
-
-### What the Plugin Adds
-
-#### Schema Fields
-
-Once applied, the plugin injects the following **non-optional** fields:
-
-| Field       | Type           | Purpose            | Description                             |
-| ----------- | -------------- | ------------------ | --------------------------------------- |
-| `deleted`   | `boolean`      | Soft-delete marker | Indicates logical deletion state        |
-| `deletedAt` | `Date \| null` | Deletion timestamp | Time when the document was soft-deleted |
-
-#### Static Model APIs
-
-The plugin augments the model with **explicit, intention-revealing static methods**:
-
-| Method                             | Behavior                                               |
-| ---------------------------------- | ------------------------------------------------------ |
-| `softDeleteById(id)`               | Marks document as deleted and timestamps it            |
-| `restoreById(id)`                  | Restores a soft-deleted document                       |
-| `countActive(filter?)`             | Counts only non-deleted documents                      |
-| `updateManyActive(filter, update)` | Updates only active documents                          |
-| `aggregateSafe(pipeline)`          | Runs aggregation with enforced soft-delete constraints |
-
-There is **no generic delete API** exposed by the plugin. Any hard delete must bypass the model
-layer entirely and is therefore highly visible.
-
-#### Query Helpers (Chainable)
-
-The plugin modifies default query semantics while keeping intent explicit:
-
-```ts
-// Default: excludes deleted documents
-await User.find({ role: 'admin' });
-
-// Explicit opt-in
-await User.find().withDeleted();
-await User.find().onlyDeleted();
-```
-
-Every read, `countDocuments()` and `distinct()` included, is scoped to `{ deleted: false }` unless
-explicitly overridden.
-
-#### Aggregation Safety (`aggregateSafe`)
-
-Aggregations are a common escape hatch for soft-delete rules. `aggregateSafe()` exists to close that
-gap **without breaking advanced pipelines**.
-
-Only models that apply the plugin are subject to these rules.
-
-| First Pipeline Stage                      | Handling                                        |
-| ----------------------------------------- | ----------------------------------------------- |
-| `$geoNear`                                | Injects `deleted=false` into `$geoNear.query`   |
-| `$search`, `$vectorSearch`, `$searchMeta` | Allowed; caller must apply filtering explicitly |
-| Default                                   | Prepends `{ $match: { deleted: false } }`       |
-
-This avoids silent data leaks while keeping aggregation behavior predictable.
-
-## 🛡️ Data Deletion Lifecycle (Policy)
-
-**Hard deletes are forbidden** for those models that uses **soft delete plugin.** A 3-layer deletion
-strategy ensures **records** are deleted safely, meaning that the deleted **data entities** are not
-permanently removed from the database for a configurable amount of time. This is done to prevent
-data loss and to ensure that the data can be restored if needed.
-
-At present, this lifecycle is enabled **only for the `User` model**.
-
-### Why Only Users?
-
-User data is uniquely sensitive:
-
-- Accidental deletion is irreversible
-- Legal or regulatory retention may apply
-- Account recovery is a real product requirement
-
-Other entities may legitimately require immediate hard deletion. Applying soft delete globally would
-be incorrect.
-
-This results in a system that is:
-
-- **Scoped** (per-model)
-- **Explicit** (opt-in)
-- **Composable** (reusable where justified)
-
-### High-Level Lifecycle
-
-```
-┌─────────────────────┐
-│  1. SOFT DELETE     │  DELETE /api/v1/users/me
-│     (Immediate)     │  → deleted=true, deletedAt=now
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  2. QUEUE JOB       │  BullMQ job scheduled with configurable delay
-│     (Retention)     │  → Default: USER_DELETION_RETENTION_DAYS (30d)
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  3. HARD DELETE     │  Worker-verified purge
-│     (Final)         │  → double-checked; audit data and avatar erased
-└─────────────────────┘
-```
-
-At no point can application code directly hard-delete a user.
-
-## Defense-in-Depth
-
-User deletion safety is enforced through **three independent layers**. Each layer assumes the others
-may fail.
-
-| Layer | Scope                 | Mechanism           | Purpose                                  |
-| ----: | --------------------- | ------------------- | ---------------------------------------- |
-|    L1 | Authoring & Commit    | ESLint + Husky      | Prevent unsafe code from being committed |
-|    L2 | Runtime               | Mongoose Plugin     | Enforce rules during execution           |
-|    L3 | Background Processing | BullMQ + Schedulers | Guarantee eventual consistency           |
-
-## Layer 1 — Authoring & Commit-Time Enforcement
-
-Custom ESLint rules detect unsafe Mongoose usage **only inside modules that opt into soft delete**.
-
-### Scoped Enforcement
-
-Rules are intentionally scoped at the module level to avoid global coupling:
-
-```ts
-files: [
-  'src/modules/user/**/*.{ts,js}',
-  // explicitly add other modules if they adopt soft delete
-];
-```
-
-This prevents false positives in domains where hard deletes are valid.
-
-### Enforced Rules
-
-| Rule                               | Purpose                          |
-| ---------------------------------- | -------------------------------- |
-| `mongoose-safety/no-hard-delete`   | Blocks unsafe delete methods     |
-| `mongoose-safety/aggregate-policy` | Enforces `aggregateSafe()` usage |
-
-Rules run via **Husky pre-commit hooks** (`lint-staged`). Unsafe deletion code cannot be committed.
-
-## Layer 2 — Runtime Enforcement
-
-Even if static analysis is bypassed, the plugin enforces rules at runtime:
-
-```ts
-// ⛔ Blocked
-await User.deleteOne({ _id: userId });
-
-// ✅ Allowed
-await User.softDeleteById(userId);
-```
-
-Queries default to excluding deleted users unless explicitly overridden.
-
-## Layer 3 — Deferred Purge & Recovery (BullMQ)
-
-Deletion is a **workflow**, not a single operation.
-
-### Retention Window
-
-A configurable grace period allows:
-
-- Account recovery
-- Cancellation of accidental deletes
-- Operational inspection
-
-### Verified Purge
-
-Before hard deletion, the worker re-validates all conditions:
-
-```ts
-const purged = await User.collection.findOneAndDelete({
-  _id: new Types.ObjectId(userId),
-  deleted: true,
-  deletedAt: { $lte: retentionDate },
-});
-```
-
-Once the user is gone, the purge erases what else holds their data. The audit log keeps its entries
-but loses the changes recorded on the account and the IP of every action the user took. An uploaded
-avatar is removed. A retry that finds the user already deleted erases them again, which is safe.
-
-### Daily Fail-Safe Scanner
-
-A scheduled job scans for eligible users daily and enqueues purge jobs for them, which catches
-purges that were never scheduled or got lost in an outage. Purge jobs have fixed ids, so a purge
-that failed all its attempts is enqueued again only once its failed job expires, after 7 days.
-
-### Automatic Recovery
-
-If a user logs in during the retention window:
-
-- The account is restored
-- The purge job is cancelled; if Redis cannot be reached, the job stays and skips the restored user
-
-No special recovery endpoint is required.
-
-### Failure Handling
-
-Deleting an account schedules its purge in the same request. If the purge cannot be scheduled, for
-example because Redis is down, the soft delete is rolled back and the request fails with a `500`, so
-no account is left deleted without a purge to follow.
-
-## Design Summary
-
-- Soft delete is **mechanism**, not policy
-- The plugin defines capabilities; domains define rules
-- User deletion is conservative, verified, and recoverable
-- Other models remain free to choose simpler semantics
-
-<br />
-
-## Resilience
-
-### Health Checks
-
-The service exposes health endpoints for **infrastructure-level traffic decisions** (load balancers,
-Kubernetes probes) and for **basic human inspection** (dashboards, manual checks).
-
-#### Endpoints
-
-| Endpoint        | Purpose                                 | MongoDB      | Redis        | Status Codes |
-| --------------- | --------------------------------------- | ------------ | ------------ | ------------ |
-| `/health`       | Every dependency, for inspection        | **Critical** | Non-critical | 200 / 503    |
-| `/health/ready` | Readiness probe (traffic gating)        | **Required** | Not checked  | 200 / 503    |
-| `/health/live`  | Liveness probe (should it be restarted) | N/A          | N/A          | 200          |
-
-`/health` answers with the overall status, uptime, memory and the state of each dependency:
-
-```json
-{
-  "status": "degraded",
-  "timestamp": "2026-11-05T12:00:00.000Z",
-  "uptime": 3600,
-  "memory": { "rss": 120, "heapUsed": 64 },
-  "services": { "mongodb": "healthy", "redis": "unhealthy" }
-}
-```
-
-#### Semantics
-
-- **MongoDB** is a _critical dependency_: without it the instance is `unhealthy` (`503`), not ready,
-  and takes no traffic.
-- **Redis** is _non-critical_: the request path degrades without it (caching and rate limiting fall
-  back, deletions fail cleanly) instead of stopping. `/health` reports `degraded` with `200`, and
-  readiness ignores it, so a Redis outage does not take every instance out of rotation at once.
-- **Readiness** is binary: `200` means the instance can take traffic, `503` that it must be taken
-  out of rotation. During shutdown it answers `503`, so traffic drains before the process exits.
-- **Liveness** checks no dependency: it only decides whether the process should be restarted, and
-  stays `200` while a shutdown drains requests.
-
-#### Timeouts & Failure Isolation
-
-Every dependency check runs with a **1500 ms timeout** to:
-
-- Prevent cascading failures
-- Keep health endpoints responsive under partial outages
-
-Failure details go to **structured logs** (`health.probe.failed`), not to HTTP responses.
-
-#### Design Rationale
-
-- Health endpoints are **machine-facing contracts**, not diagnostic APIs
-- Non-critical dependencies must never take an instance out of rotation
-- Detailed failure information belongs in logs and metrics, not in responses
-- The model fits both **monolith** and **microservice** deployments
-
-<br />
-
-## Observability & Error Semantics
-
-This project treats **observability as a first-class concern**, not an afterthought. The logging and
-error-handling model is designed to support **production debugging, incident analysis, and
-request-level traceability** without leaking sensitive information to clients.
-
-The system explicitly distinguishes between **operational failures** (expected, client-driven
-errors) and **system failures** (unexpected, infrastructure or programming errors).
-
-### Request Context Propagation (Trace ID & Client IP)
-
-Every incoming request gets a **request context** at the middleware layer, carried through the whole
-request with `AsyncLocalStorage`. Background jobs run in a context of their own.
-
-The request context contains:
-
-- `traceId`
-  - Taken from the `X-Trace-Id` or `X-Request-Id` header, or from a W3C `traceparent` header, when
-    the value is well-formed (8 to 128 characters that cannot break a log line or a header)
-  - Generated otherwise
-  - In a background job: the trace id of the request that enqueued it, or one naming the job
-- `ip`
-  - Derived from `req.ip`, which honours `TRUST_PROXY`
-- `userId`
-  - Set once the request is authenticated; `system` for background jobs
-
-These values are:
-
-- Attached to **every log line** written during the request
-- Recorded in **audit log** entries as the actor of a change
-- Sent back to the client as the `X-Trace-Id` response header and in error bodies (`traceId`)
-
-So a single request can be followed end to end, client-reported errors can be traced to their
-source, and a change in the database can be traced to the request and the user behind it.
-
-### Environment-Aware Logging Strategy
-
-Logs go to **stdout** only. Collecting, rotating and retaining them is the platform's job, which
-fits containers and Cloud Run.
-
-| Aspect               | Development                                | Production                                        |
-| -------------------- | ------------------------------------------ | ------------------------------------------------- |
-| Format               | Colorized, one readable line               | One JSON object per line                          |
-| Level field          | Winston level                              | Also `severity`, which Google Cloud Logging reads |
-| Trace ID             | Logged + response header                   | Same                                              |
-| Event name           | `event` field, e.g. `user.purge.completed` | Same                                              |
-| Stack Traces in API  | Included for debugging                     | Never exposed                                     |
-| Stack Traces in Logs | Captured for system errors                 | Same                                              |
-
-Tests run with logging silenced.
-
-### Log Levels & Error Classification
-
-Log severity reflects **operational intent**, not just HTTP status codes.
-
-Errors are **explicitly classified** instead of relying on HTTP status codes alone.
-
-#### Operational Errors (`4xx`)
-
-Expected failures caused by invalid input or user actions.
-
-Examples:
-
-- Validation errors (Zod)
-- Authentication / authorization failures
-- Domain and business rule violations
-
-Behavior:
-
-- `401`, `403` and `429` are logged as `warn`: they can point at an attack
-- Other `4xx` are logged as `debug`, so routine client mistakes do not flood production logs
-- No stack trace
-- Enriched with the trace id, the user once known, the method, the route pattern and the error code
-- Client receives a meaningful, localized message
-
-#### System Errors (`5xx`)
-
-Unexpected failures indicating bugs or infrastructure issues.
-
-Examples:
-
-- Unhandled exceptions
-- Programming errors
-- Database or dependency failures
-
-Behavior:
-
-- Logged as `error` (`http.error.unexpected`)
-- Full stack trace captured
-- Enriched with the trace id, the user once known, the method and the route pattern
-- Client receives a generic message and the trace id
-
-This keeps the logs quiet about expected failures and gives real ones full diagnostics.
-
-### Structured Error Responses
-
-All API errors follow one contract:
+Every error has one shape:
 
 ```ts
 {
   error: {
     code: string;       // stable and machine-readable, e.g. "auth.too_many_attempts"
-    message: string;    // in the request's language
+    message: string;    // in the request's language, English or Turkish
     details?: Array<{ field: string; message: string }>;
-    traceId?: string;   // the same value as the X-Trace-Id header
+    traceId?: string;   // the same value as the X-Trace-Id response header
     stack?: string;     // development only
   }
 }
 ```
 
-Guarantees:
+- Clients branch on `code`. `message` follows the `Accept-Language` header.
+- A validation failure lists each failing field in `details`. The register, profile update and
+  password change bodies also reject unknown fields instead of ignoring them.
+- An unexpected error answers `500` with a generic message and its `traceId`.
+- A `429` carries `Retry-After`. Requests under `/api` count against a per-IP rate limit and get
+  `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers.
 
-- **No internal details leak in production**
-  - Stack traces, internal error messages and implementation details are never exposed outside
-    development.
-  - Unexpected errors answer with a generic message that can still be traced through `traceId`.
+## Architecture
 
-- **Stable and predictable error shape**
-  - Clients branch on `code`, never on `message`, which changes with the language.
+A single service. At startup, loaders connect MongoDB and Redis, start the job workers and build the
+Express app, in that order. A request then passes through this chain:
 
-- **Field-level validation feedback**
-  - Validation failures are reported per field in `details`.
-  - Unknown or disallowed fields are reported instead of being silently ignored.
+```mermaid
+flowchart TD
+    client([Client]) --> context["Request context<br/>trace id, client IP"]
+    context --> httpLog["HTTP logger"]
+    httpLog --> protect["Helmet, CORS, compression"]
+    protect --> parse["Body parsing, 100 kb limit"]
+    parse --> lang["i18n: English or Turkish"]
+    lang --> health["Health routes<br/>/health, /health/ready, /health/live"]
+    lang --> uploads["Stored avatars<br/>/uploads"]
+    lang --> limiter["Rate limiter, /api only"]
+    lang --> docs["Docs<br/>/docs, /docs.json"]
+    limiter --> router["User router, /api/v1"]
+    router -->|"protected routes"| guard["authenticate<br/>authorize on admin routes"]
+    router -->|"register, login"| input
+    guard --> input["Input checks<br/>Zod: body, params, query<br/>multer: avatar upload"]
+    guard -->|"routes without input"| controller
+    input --> controller["Controller"]
+    controller --> service["Service"]
+    service --> mongo[("MongoDB")]
+    service --> redis[("Redis")]
+    service --> queue["BullMQ queues"]
+    queue --> redis
+    guard -.->|"cached auth context"| redis
+```
 
-- **Traceable client-facing failures**
-  - Every error response can be matched to server-side logs through `traceId`.
+Any step can fail. The error handler at the end of the chain turns every error into the
+[error shape](#errors), and an unknown path into a `404` of the same shape. Health checks, stored
+avatars and docs sit outside `/api`, so they are not rate limited.
 
-- **Localization-safe messaging**
-  - Client-facing messages are resolved through **i18next** (English and Turkish).
-  - Logs keep the stable codes, so incident analysis does not depend on a language.
+Deleting an account starts a lifecycle that ends in a purge:
 
-- **Environment-aware verbosity**
-  - Development prioritizes debuggability.
-  - Production prioritizes safety and operational clarity.
+```mermaid
+flowchart TD
+    request["DELETE /api/v1/users/me"] --> soft["Soft delete<br/>deleted: true, deletedAt: now"]
+    soft --> schedule{"Purge job scheduled?"}
+    schedule -->|"no, e.g. Redis is down"| rollback["Soft delete rolled back, 500"]
+    schedule -->|"yes"| retention["Retention period<br/>USER_DELETION_RETENTION_DAYS, default 30"]
+    restore["Account restored<br/>new token version, purge job cancelled"]
+    purge["Purge worker<br/>deletes only a user still deleted and past retention"]
+    retention -->|"user signs in before the purge"| restore
+    retention -->|"delay elapses"| purge
+    scan["Daily scan at 00:00 UTC<br/>enqueues purges that went missing"] --> purge
+    purge --> erase["User removed<br/>audit changes and IPs erased, uploaded avatar removed"]
+```
 
-### Failure Semantics & Operator Experience
+If a restored account's purge job cannot be cancelled, the job stays queued and the worker skips the
+user, who is no longer deleted. Purge jobs have one fixed id per user, so the daily scan cannot
+queue a second purge for a user whose job still exists, even one that failed every attempt; see
+[Known limitations](#known-limitations).
 
-The system is designed around the assumption that:
+## Design decisions
 
-- **Client errors are expected**
-- **System errors are exceptional**
-- **Logs are for operators, not for users**
+### Token versions and revocation
 
-As a result:
+A token is an HS256 JWT whose `sub` is the user id and whose `ver` is the user's token version. It
+carries no role. Each request loads the role, the account state and the current token version from
+an auth context cached in Redis for `AUTH_CONTEXT_CACHE_TTL_SECONDS`. A password change or an
+account restore moves the user to the next version, which revokes every older token at once, even
+one issued within the same second; a JWT's issue time has one-second precision, so comparing times
+would miss it. Deleting an account ends its tokens too. Each of these clears the cached context, so
+it applies on the next request. A role or activation change made directly in the database waits for
+the cache to expire.
 
-- `4xx` errors are treated as part of normal operation
-- `5xx` errors are treated as signals requiring investigation
-- Log severity reflects intent, not just HTTP status codes
+### Login protection
 
-Operational failures remain visible without polluting error monitoring, while system failures
-surface with full diagnostic context.
+- An unknown email and a wrong password get the same answer after the same bcrypt work.
+- `LOGIN_MAX_CONSECUTIVE_FAILS` failures in a row lock an email and IP pair for
+  `LOGIN_BLOCK_DURATION_SECONDS`. Each IP also has a daily budget of
+  `LOGIN_MAX_FAILS_PER_IP_PER_DAY` failures across all emails.
+- The current-password check of a password change counts toward the same lock and budget, so a
+  stolen token cannot be used to guess the password.
+- The counters live in Redis. While Redis is unreachable, each instance counts in memory.
 
-### Production Safety Guarantees
+### Soft delete and purge
 
-The system enforces the following guarantees in production:
+User deletion is guarded in three layers, each assuming the others may fail:
 
-- No stack traces are exposed to end users
-- All unexpected failures are logged with:
-  - `traceId`
-  - the user, once authenticated
-  - HTTP method and route pattern
-  - full stack trace
-- Logs are one JSON object per line on stdout, with a `severity` that log platforms understand, and
-  suitable for aggregation and alerting
-- Every create, `save()`, `findOneAndUpdate()` and `findOneAndDelete()` on an audited model records
-  who made it and under which trace id; bulk writes such as `updateMany()` are not audited
+- **Commit time:** custom ESLint rules (`mongoose-safety/no-hard-delete`,
+  `mongoose-safety/aggregate-policy`) reject hard deletes and unfiltered aggregations in the user
+  module, and the pre-commit hook runs them through lint-staged.
+- **Runtime:** a Mongoose plugin adds `deleted` and `deletedAt`, and hides deleted documents from
+  every `find` query, `countDocuments()` and `distinct()` unless the query asks for `.withDeleted()`
+  or `.onlyDeleted()`, or filters on `deleted` itself. It blocks `deleteOne()`, `deleteMany()` and
+  `findOneAndDelete()`, and offers `softDeleteById()` and `restoreById()`. A plain `aggregate()` is
+  not filtered; `aggregateSafe()` adds the filter to the pipeline, which is why the lint rule
+  requires it.
+- **Background:** the purge job and the daily scan shown above. The worker deletes through the raw
+  collection with a filter that matches only a user still deleted and past retention.
 
-These guarantees ensure the system remains **debuggable under failure** without compromising
-security or leaking sensitive implementation details.
+### Audit log
 
-### Design Principles
+A Mongoose plugin records `save()`, which `create()` goes through, and `findOneAndUpdate()` and
+`findOneAndDelete()` on an audited model; other writes are not recorded (see
+[Known limitations](#known-limitations)). The actor comes from the request context: the signed-in
+user, `anonymous` in a request without one, or `system` outside requests, such as in jobs, along
+with the trace id and the client IP. Sensitive fields such as `password` and `token` are masked at
+any depth. Entries are written without holding up the operation they describe, and shutdown waits
+for the pending ones. When a user is purged, the entries about the account lose their recorded
+changes, and the entries of the user's own actions lose their IP.
 
-- **Observability is a feature, not a side effect**
-- **Request context is implicit, not manually threaded**
-- **Errors are classified intentionally**
-- **Production safety always outweighs debugging convenience**
-- **Logs serve operators, responses serve clients**
+### Migrations
 
-This approach favors explicit behavior, operational correctness, and long-term maintainability over
-framework-driven abstractions or demo-oriented shortcuts.
+Migrations change data that already exists. They run as a deploy step, never at startup. A run takes
+a lock, so two deploys cannot apply the same migration twice. It applies pending migrations in file
+name order, records each one in the `migrations` collection, then builds the indexes the schemas
+declare. Index builds only add; dropping an index takes a migration of its own. See
+[`src/database/migrations/README.md`](src/database/migrations/README.md) for writing one.
+
+### Queues and Redis outages
+
+Queues and workers come from one factory. Jobs get five attempts with exponential backoff from one
+minute, and BullMQ keeps completed jobs for at least a day and failed ones for at least seven. A job
+enqueued during a request carries that request's trace id. `WORKERS_ENABLED=false` makes an instance
+serve HTTP only.
+
+Redis speeds up the request path but is not a dependency of it:
+
+- A failed cache read is a miss, and a failed cache write is skipped.
+- The rate limiter and the login counters fall back to per-instance memory.
+- `/health` reports `degraded` with `200`, and readiness ignores Redis, so an outage does not take
+  every instance out of rotation at once.
+- What needs Redis fails cleanly: an account deletion that cannot schedule its purge is rolled back.
+- BullMQ remembers a failed first connection for good, so such a queue is rebuilt on its next use.
+
+### Observability
+
+Every request runs in an `AsyncLocalStorage` context holding a trace id, the client IP (`req.ip`,
+which honours `TRUST_PROXY`) and, once authenticated, the user id. The trace id is the `X-Trace-Id`
+header, or `X-Request-Id` when that is absent, if the value is well-formed; failing that it comes
+from a W3C `traceparent` header, or is generated. It goes back in the `X-Trace-Id` response header.
+A job enqueued during a request runs under that request's trace id; a scheduled job gets one of its
+own, which the jobs it enqueues carry on.
+
+Winston writes to stdout, and every line logged during a request or a job carries its trace id and,
+once known, the user id. In production each line is a JSON object with the `severity` field Google
+Cloud Logging reads; in development it is a readable line. Lines name their event, such as
+`user.purge.completed`. Every request gets an `info` line when it completes, and the error handler
+adds one line per error: `warn` for `401`, `403` and `429`, `debug` for other `4xx`, and `error`
+with the stack trace for `5xx`.
+
+### Graceful shutdown
+
+On `SIGTERM` or `SIGINT` the HTTP server stops accepting connections, lets in-flight requests finish
+and closes idle keep-alive connections; a readiness check that still arrives on an open connection
+gets `503`. Then the jobs and Redis close, pending audit entries are written and MongoDB
+disconnects: the reverse of the order they started in. `SHUTDOWN_TIMEOUT_MS` bounds the whole
+sequence; past it the process exits with code 1. An unhandled rejection or uncaught exception is
+logged and ends the process with exit code 1.
+
+## Configuration
+
+Copy `.env.example` to `.env` for local development. In production the platform provides the
+variables. They are validated at startup, and an invalid value stops the app before it serves
+anything.
+
+| Variable                         | Default       | Description                                                       |
+| -------------------------------- | ------------- | ----------------------------------------------------------------- |
+| `NODE_ENV`                       | `development` | `development`, `production` or `test`                             |
+| `PORT`                           | `3000`        | HTTP port                                                         |
+| `LOG_LEVEL`                      | `info`        | Winston log level                                                 |
+| `MONGO_URI`                      | —             | MongoDB connection string                                         |
+| `REDIS_URL`                      | —             | Redis connection URL                                              |
+| `JWT_SECRET`                     | —             | Token signing secret, at least 32 characters                      |
+| `JWT_EXPIRES_IN`                 | `1d`          | Token lifetime with a unit: `900s`, `15m`, `12h`, `1d`            |
+| `BCRYPT_SALT_ROUNDS`             | `10`          | bcrypt cost, from 4 to 15                                         |
+| `AUTH_CONTEXT_CACHE_TTL_SECONDS` | `60`          | How long a user's role and account state stay cached              |
+| `LOGIN_MAX_CONSECUTIVE_FAILS`    | `5`           | Failed sign-ins in a row that lock an email and IP pair           |
+| `LOGIN_BLOCK_DURATION_SECONDS`   | `900`         | How long that lock lasts                                          |
+| `LOGIN_MAX_FAILS_PER_IP_PER_DAY` | `100`         | Failed sign-ins one IP may make per day, across all emails        |
+| `CORS_ORIGINS`                   | empty         | Allowed origins, comma-separated; empty allows any in development |
+| `TRUST_PROXY`                    | `false`       | Proxies in front of the app, up to 10; required in production     |
+| `RATE_LIMIT_POINTS`              | `100`         | Requests one IP may make per window under `/api`                  |
+| `RATE_LIMIT_DURATION_SECONDS`    | `60`          | Rate limit window                                                 |
+| `USER_DELETION_RETENTION_DAYS`   | `30`          | Days before a deleted account is purged for good                  |
+| `SHUTDOWN_TIMEOUT_MS`            | `8000`        | How long shutdown may take before the process exits anyway        |
+| `WORKERS_ENABLED`                | `true`        | `false` on instances that only serve HTTP                         |
+
+## Tests
+
+`npm test` runs Vitest. HTTP tests send real requests to the Express app through supertest,
+mongodb-memory-server starts a throwaway MongoDB for the run, and no Redis is needed, so the suite
+runs without Docker or any service to set up. Tests live next to the code they cover, in `__tests__`
+folders. `npm run test:coverage` fails below 89% of lines, 88% of statements, 91% of functions or
+76% of branches.
+
+Two kinds of test keep the API document true to the code:
+
+- **Route parity** reads the route tables of the health and user routers, as the app mounts them,
+  and compares them with the operations in the document, in both directions. A route served but not
+  documented fails it, and so does an operation documented but not served. The docs endpoints and
+  the `/uploads` files are outside the comparison.
+- **Response contract**: the user and health route tests pass every response through
+  `expectDocumentedResponse`, which fails when the operation does not document the status or the
+  body does not match the documented schema.
+
+## Project structure
+
+```
+src/
+├── app.ts           # Entry point: startup, signals, graceful shutdown
+├── config/          # Environment schema, validated at startup
+├── core/            # Express setup, middleware, errors, OpenAPI builder, shutdown
+├── database/        # Migrations, soft delete and audit log plugins, seeders
+├── jobs/            # Queue factory; user purge queue, worker and daily scan
+├── lib/             # Logger, Redis clients, cache, file storage
+├── modules/
+│   ├── health/      # Probes, routes and their OpenAPI paths
+│   └── user/        # Routes, controller, service, model, validators, OpenAPI paths
+├── scripts/         # Migration scaffold
+├── test/            # Global setup (a throwaway MongoDB) and helpers: Redis mock, OpenAPI checks
+└── utils/           # Pagination, validators, timeouts
+locales/             # English and Turkish messages
+eslint/              # Custom Mongoose safety rules
+```
+
+## Known limitations
+
+- **No refresh tokens.** A sign-in yields one access token that lives for `JWT_EXPIRES_IN`.
+  Revocation goes through token versions instead.
+- **Offset pagination.** Lists skip `(page - 1) * limit` documents, so deep pages get slower and
+  writes made meanwhile can shift items between pages. A cursor would fix both.
+- **Not every write is audited.** Only `save()`, `findOneAndUpdate()` and `findOneAndDelete()` are
+  recorded; `updateOne()`, `updateMany()`, `insertMany()`, `bulkWrite()` and the other write methods
+  leave no entry.
+- **A purge that fails every attempt can stall.** Its failed job keeps the user's fixed job id, so
+  the daily scan cannot queue the purge again until BullMQ drops that job, which it does only when
+  another job in the queue fails at least 7 days later.
+- **Per-IP limits use the whole IPv6 address.** The API rate limit and the login limits key on
+  `req.ip`, so a client that owns an IPv6 /64 can rotate addresses for fresh budgets.
+- **No audit log retention policy.** Entries stay until someone removes them; a purge only redacts
+  them.
+- **Token versions ended older sessions.** Tokens without a `ver` claim are rejected, so upgrading a
+  deployment from a version without token versions signs every user out once.
+
+## License
+
+[MIT](LICENSE)
