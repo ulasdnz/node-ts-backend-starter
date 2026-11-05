@@ -183,3 +183,23 @@ export const flushAuditLogs = async (): Promise<void> => {
     await Promise.all(pendingWrites);
   }
 };
+
+/**
+ * Erases the personal data the log holds once a document is gone for good: the changes recorded on
+ * the document, and the IP of every change its owner (`actorId`) made. The entries themselves stay,
+ * so what happened and when outlives the data. Safe to run again.
+ */
+export const redactAuditTrail = async ({
+  model,
+  documentId,
+  actorId,
+}: {
+  model: string;
+  documentId: string;
+  actorId?: string;
+}): Promise<void> => {
+  await AuditLog.updateMany({ model, documentId }, { $set: { changes: null } });
+  if (actorId) {
+    await AuditLog.updateMany({ 'actor.userId': actorId }, { $set: { 'actor.ip': null } });
+  }
+};

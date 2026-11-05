@@ -2,6 +2,8 @@ import type { Job, Queue } from 'bullmq';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../../../config/index.js';
 import { runInContext } from '../../../core/middleware/request-context.js';
+import { AuditLog } from '../../../database/plugins/audit-log.model.js';
+import { storage } from '../../../lib/storage.js';
 import User from '../../../modules/user/user.model.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
 import { getQueue } from '../../queue-factory.js';
@@ -26,7 +28,11 @@ beforeEach(() => {
 const pastRetention = () => new Date(Date.now() - config.USER_DELETION_RETENTION_MS - 60_000);
 
 // Raw inserts: the tests control the soft-delete fields exactly
-const insertUser = async (email: string, state: { deleted: boolean; deletedAt: Date | null }) => {
+const insertUser = async (
+  email: string,
+  state: { deleted: boolean; deletedAt: Date | null },
+  extra: Record<string, unknown> = {},
+) => {
   const { insertedId } = await User.collection.insertOne({
     email,
     name: 'Pat',
@@ -35,8 +41,32 @@ const insertUser = async (email: string, state: { deleted: boolean; deletedAt: D
     role: 'user',
     isActivated: true,
     ...state,
+    ...extra,
   });
   return insertedId.toString();
+};
+
+const expired = () => ({ deleted: true, deletedAt: pastRetention() });
+
+// One entry about the user's own document and one about something the user changed
+const auditUser = async (userId: string) => {
+  const [about, by] = await AuditLog.create([
+    {
+      operation: 'create',
+      model: 'User',
+      documentId: userId,
+      actor: { userId: 'anonymous', traceId: 'trace-a', ip: '203.0.113.1' },
+      changes: { email: 'pat@example.com', name: 'Pat' },
+    },
+    {
+      operation: 'update',
+      model: 'Post',
+      documentId: 'post-1',
+      actor: { userId, traceId: 'trace-b', ip: '203.0.113.2' },
+      changes: { title: 'Hello' },
+    },
+  ]);
+  return { aboutId: about._id, byId: by._id };
 };
 
 const purgeJob = (userId?: string) =>
@@ -90,6 +120,67 @@ describe('purge processor', () => {
 
   it('rejects a purge job without a user id', async () => {
     await expect(purgeProcessor(purgeJob())).rejects.toThrow('userId');
+  });
+});
+
+describe('purge processor and personal data', () => {
+  it('erases a purged user from the audit log, keeping the trail of events', async () => {
+    const id = await insertUser('expired@example.com', expired());
+    const { aboutId, byId } = await auditUser(id);
+    const unrelated = await AuditLog.create({
+      operation: 'create',
+      model: 'User',
+      documentId: 'someone-else',
+      actor: { userId: 'someone-else', traceId: 'trace-c', ip: '203.0.113.3' },
+      changes: { email: 'other@example.com' },
+    });
+
+    await purgeProcessor(purgeJob(id));
+
+    const about = await AuditLog.findById(aboutId).lean();
+    const by = await AuditLog.findById(byId).lean();
+    expect(about).toMatchObject({ operation: 'create', changes: null });
+    expect(by).toMatchObject({ changes: { title: 'Hello' }, actor: { userId: id, ip: null } });
+    expect(await AuditLog.findById(unrelated._id).lean()).toMatchObject({
+      changes: { email: 'other@example.com' },
+      actor: { ip: '203.0.113.3' },
+    });
+  });
+
+  it('keeps the audit trail of a user restored since scheduling', async () => {
+    const id = await insertUser('restored@example.com', { deleted: false, deletedAt: null });
+    const { aboutId } = await auditUser(id);
+
+    await purgeProcessor(purgeJob(id));
+
+    expect(await AuditLog.findById(aboutId).lean()).toMatchObject({
+      changes: { email: 'pat@example.com' },
+    });
+  });
+
+  // A run that deleted the user and then failed is retried, and finds the user already gone
+  it('still erases the audit data when a retry finds the user already gone', async () => {
+    const { aboutId } = await auditUser('6543210fedcba98765432100');
+
+    await purgeProcessor(purgeJob('6543210fedcba98765432100'));
+
+    expect(await AuditLog.findById(aboutId).lean()).toMatchObject({ changes: null });
+  });
+
+  it('removes the avatar file a purged user uploaded', async () => {
+    const remove = vi.spyOn(storage, 'remove').mockResolvedValue(undefined);
+    const uploaded = await insertUser('photo@example.com', expired(), {
+      photoUrl: '/uploads/avatar.png',
+    });
+    const external = await insertUser('default@example.com', expired(), {
+      photoUrl: 'https://example.com/default.png',
+    });
+
+    await purgeProcessor(purgeJob(uploaded));
+    await purgeProcessor(purgeJob(external));
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith('/uploads/avatar.png');
   });
 });
 
