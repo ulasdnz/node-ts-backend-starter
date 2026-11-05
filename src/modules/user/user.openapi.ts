@@ -67,7 +67,7 @@ export const userPaths: ZodOpenApiPathsObject = {
   '/api/v1/auth/login': {
     post: {
       tags: ['Auth'],
-      summary: 'Sign in; restores an account deleted within the retention period',
+      summary: 'Sign in; restores a deleted account that has not been purged yet',
       description:
         'Repeated failures for one email and IP lock that pair for a while, and each IP has a ' +
         'daily failure budget (429 with Retry-After). The message is present only when the ' +
