@@ -317,13 +317,16 @@ folders. `npm run test:coverage` fails below 89% of lines, 88% of statements, 91
 
 Two kinds of test keep the API document true to the code:
 
-- **Route parity** reads the route tables of the health and user routers, as the app mounts them,
-  and compares them with the operations in the document, in both directions. A route served but not
-  documented fails it, and so does an operation documented but not served. The docs endpoints and
-  the `/uploads` files are outside the comparison.
+- **Route parity** reads the route tables of the health and user routers and compares them with the
+  operations in the document, in both directions. A route served but not documented fails it, and so
+  does an operation documented but not served. It also fails when the app mounts a router with
+  routes that the comparison does not cover, and it requests every documented operation to prove the
+  app answers it at that path. The docs endpoints and the `/uploads` files are outside the
+  comparison.
 - **Response contract**: the user and health route tests pass every response through
-  `expectDocumentedResponse`, which fails when the operation does not document the status or the
-  body does not match the documented schema.
+  `expectDocumentedResponse`, which fails when the operation does not document the status, or when
+  the body does not match the documented schema, checked both by Zod and against the published JSON
+  Schema.
 
 ## Project structure
 
