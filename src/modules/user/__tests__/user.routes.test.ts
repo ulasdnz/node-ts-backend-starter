@@ -3,6 +3,8 @@ import type { Express } from 'express';
 import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initExpress } from '../../../core/loaders/express.js';
+import { AuditLog } from '../../../database/plugins/audit-log.model.js';
+import { flushAuditLogs } from '../../../database/plugins/audit-log.plugin.js';
 import { purgeQueue } from '../../../jobs/queues.js';
 import { setupTestDatabase } from '../../../test/helpers/database.js';
 import { createLoginProtection, type LoginProtection } from '../login-protection.js';
@@ -66,6 +68,19 @@ describe('registration', () => {
     expect(res.body.data.email).toBe('integration@example.com');
     expect(res.body.data.password).toBeUndefined();
     expect(await User.countDocuments({ email: 'integration@example.com' })).toBe(1);
+  });
+
+  it('records the registration in the audit log with the request as the actor', async () => {
+    const res = await register('audited@example.com').set('X-Trace-Id', 'trace-register-1');
+    await flushAuditLogs();
+
+    const entry = await AuditLog.findOne({ model: 'User', documentId: res.body.data._id }).lean();
+
+    expect(entry).toMatchObject({
+      operation: 'create',
+      actor: { userId: 'anonymous', traceId: 'trace-register-1' },
+      changes: { email: 'audited@example.com', password: '[REDACTED]' },
+    });
   });
 
   it('maps a duplicate registration to 409 user.email_in_use without a pre-check', async () => {

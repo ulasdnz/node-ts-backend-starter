@@ -1,5 +1,6 @@
 import mongoose, { type InferSchemaType, Types } from 'mongoose';
 import { regexes } from 'zod';
+import { auditLogPlugin } from '../../database/plugins/audit-log.plugin.js';
 import {
   type SoftDeleteModel,
   softDeletePlugin,
@@ -71,6 +72,7 @@ export type IUser = InferSchemaType<typeof userSchema> & {
 };
 
 userSchema.plugin(softDeletePlugin);
+userSchema.plugin(auditLogPlugin);
 
 const User = model<IUser, SoftDeleteModel<IUser>>('User', userSchema);
 export default User;

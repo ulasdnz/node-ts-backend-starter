@@ -1,4 +1,5 @@
 import type { Express } from 'express';
+import { flushAuditLogs } from '../../database/plugins/audit-log.plugin.js';
 import { closeJobs, initJobs } from '../../jobs/index.js';
 import { logger } from '../../lib/logger.js';
 import { closeRedisClients, connectRedis } from '../../lib/redis.js';
@@ -15,6 +16,8 @@ export const initLoaders = async (): Promise<Express> => {
   logger.info('Initializing application', { event: 'app.init.started' });
 
   onShutdown('mongodb', disconnectDB);
+  // Hooks run in reverse order, so pending audit entries are written before MongoDB closes
+  onShutdown('audit-log', flushAuditLogs);
   await initMongoose();
 
   onShutdown('redis', closeRedisClients);
