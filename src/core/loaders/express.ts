@@ -14,6 +14,7 @@ import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
 import { createRouter } from '../router.js';
 import { isShuttingDown } from '../shutdown.js';
+import { mountDocs } from './docs.js';
 import { initI18n } from './i18n.js';
 
 const BODY_LIMIT = '100kb';
@@ -69,6 +70,9 @@ export const initExpress = async (): Promise<Express> => {
   );
   api.use('/v1', userRoutes);
   app.use('/api', api);
+
+  // Outside /api as well: the docs are not rate limited
+  await mountDocs(app, { nodeEnv: config.NODE_ENV });
 
   app.use(notFoundHandler);
   app.use(createErrorHandler({ logger, nodeEnv: config.NODE_ENV }));
