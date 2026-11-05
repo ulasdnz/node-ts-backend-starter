@@ -18,7 +18,7 @@ vi.mock('../../../jobs/queues', () => ({
 }));
 
 vi.mock('../../../lib/redis', () => ({
-  initRedis: vi.fn(),
+  connectRedis: vi.fn(),
   redisClient: {
     connect: vi.fn(),
     ping: vi.fn().mockResolvedValue('PONG'),

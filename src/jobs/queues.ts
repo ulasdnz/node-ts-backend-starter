@@ -3,7 +3,7 @@ import { logger } from '../lib/logger.js';
 import { createRedisClient } from '../lib/redis.js';
 
 export const purgeQueue = new Queue('user-purge', {
-  connection: createRedisClient(),
+  connection: createRedisClient('purge-queue', 'bullmq-producer'),
   defaultJobOptions: {
     attempts: 5,
     backoff: {
@@ -32,7 +32,7 @@ export async function setupRepeatedJobs() {
 }
 
 const queueEvents = new QueueEvents('user-purge', {
-  connection: createRedisClient(),
+  connection: createRedisClient('purge-queue-events', 'bullmq-worker'),
 });
 
 queueEvents.on('failed', async ({ jobId, failedReason }) => {

@@ -1,78 +1,99 @@
 import { Redis, type RedisOptions } from 'ioredis';
 import { config } from '../config/index.js';
+import { withTimeout } from '../utils/timeout.js';
 import { logger } from './logger.js';
 
-const REDIS_URL = config.REDIS_URL;
+/**
+ * What a connection is used for decides how it behaves while Redis is unreachable:
+ * - `default`: the request path (cache, rate limiting, probes). Commands fail at once instead of
+ *   queueing, so a Redis outage degrades requests rather than hanging them.
+ * - `bullmq-producer`: enqueueing jobs. Also fails fast, so the caller can report the failure.
+ * - `bullmq-worker`: BullMQ's blocking connections, which must retry forever (a BullMQ requirement).
+ */
+export type RedisRole = 'default' | 'bullmq-producer' | 'bullmq-worker';
 
-if (!REDIS_URL) {
-  throw new Error('REDIS_URL is not defined in environment variables');
-}
-
-const redisOptions: RedisOptions = {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-  lazyConnect: true,
-  retryStrategy: (times: number) => {
-    const delay = Math.min(times * 100, 2000);
-
-    if (times === 1) {
-      logger.warn('Redis: Reconnecting...');
-    }
-    if (times % 10 === 0) {
-      logger.error(`Redis: Still attempting to reconnect... (${times} attempts)`);
-    }
-
-    return delay;
-  },
-  reconnectOnError: (err) => {
-    const targetError = 'READONLY';
-    if (err.message.includes(targetError)) {
-      return true;
-    }
-    return false;
-  },
-  keepAlive: 10000,
+const ROLE_OPTIONS: Record<RedisRole, RedisOptions> = {
+  default: { enableOfflineQueue: false, maxRetriesPerRequest: 1, commandTimeout: 1000 },
+  'bullmq-producer': { enableOfflineQueue: false },
+  'bullmq-worker': { enableOfflineQueue: true, maxRetriesPerRequest: null },
 };
 
-// Main client for general use (caching, rate limiting)
-export const redisClient = new Redis(REDIS_URL, redisOptions);
-
-// Attach error listener to prevent process crash
-redisClient.on('error', (err) => {
-  logger.error('Redis Client Error:', { error: err.message });
+export const buildRedisOptions = (role: RedisRole): RedisOptions => ({
+  // Creating a client never opens a connection; connecting happens at startup, not at import
+  lazyConnect: true,
+  connectTimeout: 10_000,
+  keepAlive: 10_000,
+  // A failover can leave the connection on a read-only replica; reconnecting reaches the primary
+  reconnectOnError: (error) => error.message.includes('READONLY'),
+  ...ROLE_OPTIONS[role],
 });
 
-redisClient.on('connect', () => logger.info('Redis: Connection established'));
-redisClient.on('ready', () => logger.info('Redis: Ready to receive commands'));
-redisClient.on('reconnecting', () => logger.warn('Redis: Reconnecting...'));
+const clients = new Set<Redis>();
 
-/**
- * Creates a new Redis client instance.
- * Useful for scenarios requiring dedicated connections (e.g., BullMQ workers).
- */
-export const createRedisClient = (options: Partial<RedisOptions> = {}) => {
-  const client = new Redis(REDIS_URL, { ...redisOptions, ...options });
-
-  // Attach error listener to prevent unhandled 'error' events
-  client.on('error', (err) => {
-    logger.error('Redis Factory Client Error:', { error: err.message });
+/** Creates a client and registers it, so shutdown closes every connection the app opened. */
+export const createRedisClient = (name: string, role: RedisRole = 'default'): Redis => {
+  const client = new Redis(config.REDIS_URL, {
+    ...buildRedisOptions(role),
+    retryStrategy: (attempt) => {
+      if (attempt === 1) {
+        logger.warn('Redis client reconnecting', {
+          event: 'redis.client.reconnecting',
+          client: name,
+          attempt,
+        });
+      } else if (attempt % 10 === 0) {
+        logger.error('Redis client still reconnecting', {
+          event: 'redis.client.reconnecting',
+          client: name,
+          attempt,
+        });
+      }
+      return Math.min(attempt * 100, 2000);
+    },
   });
 
+  client.on('error', (error: Error) => {
+    logger.error('Redis client error', {
+      event: 'redis.client.error',
+      client: name,
+      error: error.message,
+    });
+  });
+  client.on('ready', () => {
+    logger.info('Redis client ready', { event: 'redis.client.ready', client: name });
+  });
+
+  clients.add(client);
   return client;
 };
 
-export const initRedis = async () => {
-  try {
-    await redisClient.connect();
-    // Verify connection with a ping
-    await redisClient.ping();
-    logger.info('Redis: Initial connection verified');
-  } catch (error) {
-    logger.error('Redis: Initial connection failed');
-    throw error; // Fail fast in loader
-  }
+/** Shared request-path client: cache, rate limiting and health probes. */
+export const redisClient = createRedisClient('main');
+
+/** Connects the shared client; fails startup instead of retrying forever when Redis is absent. */
+export const connectRedis = async (timeoutMs = 10_000): Promise<void> => {
+  await withTimeout(
+    (async () => {
+      await redisClient.connect();
+      await redisClient.ping();
+    })(),
+    timeoutMs,
+    'Redis connection',
+  );
 };
 
-export const closeRedis = async () => {
-  await redisClient.quit();
+export const closeRedisClients = async (): Promise<void> => {
+  await Promise.allSettled(
+    [...clients].map(async (client) => {
+      if (client.status === 'wait' || client.status === 'end') {
+        client.disconnect();
+        return;
+      }
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
+    }),
+  );
 };

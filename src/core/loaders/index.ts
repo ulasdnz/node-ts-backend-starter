@@ -1,5 +1,5 @@
 import { logger } from '../../lib/logger.js';
-import { initRedis } from '../../lib/redis.js';
+import { connectRedis } from '../../lib/redis.js';
 import { initExpress } from './express.js';
 import { initMongoose } from './mongoose.js';
 
@@ -8,7 +8,7 @@ export const initLoaders = async () => {
     logger.info('Initializing application loaders...');
 
     await initMongoose();
-    await initRedis();
+    await connectRedis();
 
     const app = await initExpress();
 

@@ -2,7 +2,7 @@ import { config } from './config/index.js';
 import { initLoaders } from './core/loaders/index.js';
 import { initJobs, shutdownJobs } from './jobs/index.js';
 import { logger } from './lib/logger.js';
-import { closeRedis } from './lib/redis.js';
+import { closeRedisClients } from './lib/redis.js';
 import { disconnectDB } from './utils/db.js';
 
 const startServer = async (): Promise<void> => {
@@ -25,7 +25,7 @@ const startServer = async (): Promise<void> => {
         try {
           await shutdownJobs();
           logger.info('Jobs/Workers shut down');
-          await Promise.all([disconnectDB(), closeRedis()]);
+          await Promise.all([disconnectDB(), closeRedisClients()]);
           logger.info('Data connections (Mongo & Redis) closed');
 
           process.exit(0);

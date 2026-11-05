@@ -10,9 +10,7 @@ interface RateLimiterReject {
   isFirstInDuration: boolean;
 }
 
-// Dedicated Redis client for Rate Limiter with offline queue disabled
-// This prevents the request from hanging if Redis is down
-const redisClient = createRedisClient({ enableOfflineQueue: false });
+const redisClient = createRedisClient('rate-limiter');
 
 const rateLimiterMemory = new RateLimiterMemory({
   points: 100,

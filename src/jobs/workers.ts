@@ -9,7 +9,7 @@ export function initWorkers() {
   logger.info('Initializing BullMQ workers...');
 
   const purgeWorker = new Worker('user-purge', purgeProcessor, {
-    connection: createRedisClient(),
+    connection: createRedisClient('purge-worker', 'bullmq-worker'),
     concurrency: 5,
     limiter: {
       max: 100,
