@@ -16,18 +16,19 @@ export default defineConfig({
         '**/__tests__/**',
         'src/test/**',
         'src/**/*.d.ts',
-        // Operational entry points, exercised by running them rather than by unit tests
+        // Command-line entry points, exercised by running them rather than by unit tests. The
+        // migration runner, the migrations and the seeder they call are covered.
         'src/app.ts',
-        'src/database/migrations/**',
-        'src/database/seeders/**',
+        'src/database/migrations/index.ts',
+        'src/database/seeders/index.ts',
         'src/scripts/**',
       ],
       // A floor just under the current numbers: coverage can only ratchet up from here
       thresholds: {
-        lines: 65,
-        statements: 66,
-        functions: 67,
-        branches: 60,
+        lines: 89,
+        statements: 88,
+        functions: 91,
+        branches: 76,
       },
     },
     env: {
