@@ -1,47 +1,15 @@
-import { z } from 'zod';
-
-const envSchema = z
-  .object({
-    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-    PORT: z.coerce.number().default(3000),
-    MONGO_URI: z
-      .string()
-      .nonempty('MONGO_URI must be provided')
-      .refine((val: string) => val.startsWith('mongodb://') || val.startsWith('mongodb+srv://'), {
-        message: 'MONGO_URI must start with mongodb:// or mongodb+srv://',
-      }),
-    JWT_SECRET: z.string().nonempty('JWT_SECRET must be provided'),
-    LOG_LEVEL: z.string().default('info'),
-    REDIS_URL: z
-      .string()
-      .nonempty('REDIS_URL must be provided')
-      .refine(
-        (val) => {
-          try {
-            const url = new URL(val);
-            return (url.protocol === 'redis:' || url.protocol === 'rediss:') && !!url.host;
-          } catch {
-            return false;
-          }
-        },
-        {
-          message: 'REDIS_URL must be a valid redis URL like redis://host:port',
-        },
-      ),
-    USER_DELETION_RETENTION_DAYS: z.coerce.number().default(30),
-  })
-  .transform((data) => ({
-    ...data,
-    USER_DELETION_RETENTION_MS: data.USER_DELETION_RETENTION_DAYS * 24 * 60 * 60 * 1000,
-  }));
+import { envSchema, type Config } from './env.schema.js';
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables');
+  // The logger is configured from this config, so invalid settings can only go to stderr
+  console.error('Invalid environment configuration:');
   for (const issue of parsed.error.issues) {
-    console.error(`- ${issue.path.join('.')} : ${issue.message}`);
+    console.error(`- ${issue.path.join('.') || '(root)'}: ${issue.message}`);
   }
   process.exit(1);
 }
-export const config = parsed.data;
+
+export const config: Config = parsed.data;
+export type { Config };
