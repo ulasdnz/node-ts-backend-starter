@@ -5,11 +5,20 @@ import type { SuccessResponse } from '../../core/types/api.types.js';
 import type { PaginationMeta } from '../../utils/pagination.js';
 import * as userService from './user.service.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
-import type { ChangePasswordInput, UserQueryInput } from './user.validators.js';
+import type {
+  ChangePasswordInput,
+  LoginInput,
+  RegisterInput,
+  UpdateUserInput,
+  UserQueryInput,
+} from './user.validators.js';
 
 // Response policy: changes answer with a localized message, reads with data alone
 
-export async function register(req: Request, res: Response<SuccessResponse<UserResponse>>) {
+export async function register(
+  req: Request<unknown, unknown, RegisterInput>,
+  res: Response<SuccessResponse<UserResponse>>,
+) {
   const user = await userService.registerUser(req.body);
 
   res.status(201).json({
@@ -19,7 +28,7 @@ export async function register(req: Request, res: Response<SuccessResponse<UserR
 }
 
 export async function login(
-  req: Request,
+  req: Request<unknown, unknown, LoginInput>,
   res: Response<SuccessResponse<Omit<AuthResponse, 'wasRestored'>>>,
 ) {
   const { wasRestored, ...result } = await userService.loginUser(req.body, req.ip ?? 'unknown');
@@ -55,7 +64,10 @@ export async function deleteUser(req: Request, res: Response<SuccessResponse<voi
   });
 }
 
-export async function updateUser(req: Request, res: Response<SuccessResponse<UserResponse>>) {
+export async function updateUser(
+  req: Request<unknown, unknown, UpdateUserInput>,
+  res: Response<SuccessResponse<UserResponse>>,
+) {
   const userId = req.user!.id;
   const result = await userService.updateUser(userId, req.body);
 

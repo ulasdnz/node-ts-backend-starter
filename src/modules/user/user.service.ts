@@ -8,13 +8,14 @@ import { type Page, paginate } from '../../utils/pagination.js';
 import { loginProtection } from './login-protection.js';
 import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password.js';
 import { invalidateAuthContext } from './user.auth-context.js';
-import User, { type IUser } from './user.model.js';
+import User from './user.model.js';
 import { issueAccessToken } from './user.tokens.js';
 import type { AuthResponse, UserResponse } from './user.types.js';
 import type {
   ChangePasswordInput,
   LoginInput,
   RegisterInput,
+  UpdateUserInput,
   UserQueryInput,
 } from './user.validators.js';
 
@@ -129,7 +130,7 @@ export async function deleteUser(userId: string): Promise<void> {
   await invalidateAuthContext(userId);
 }
 
-export async function updateUser(userId: string, data: Partial<IUser>): Promise<UserResponse> {
+export async function updateUser(userId: string, data: UpdateUserInput): Promise<UserResponse> {
   const user = await User.findById(userId);
   if (!user) {
     throw new CustomError(404, 'user.not_found');

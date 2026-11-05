@@ -31,7 +31,7 @@ describe('seedUsers', () => {
   it('also clears soft-deleted users', async () => {
     const { adminEmail } = await seedUsers(1);
     const admin = await User.findOne({ email: adminEmail }).orFail();
-    await User.softDeleteById(admin.id as string);
+    await User.softDeleteById(admin.id);
 
     await seedUsers(1);
 

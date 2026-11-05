@@ -39,18 +39,8 @@ export default tseslint.config(
     },
   },
   {
-    // Type-aware rules (floating promises, unsafe any, misused promises) for the layers that have been
-    // hardened so far. Phase 1b widens this list until it covers all of src/.
-    files: [
-      'src/app.ts',
-      'src/config/**/*.ts',
-      'src/core/**/*.ts',
-      'src/lib/**/*.ts',
-      'src/modules/health/**/*.ts',
-      'src/test/**/*.ts',
-      'src/utils/**/*.ts',
-    ],
-    ignores: ['src/core/middleware/auth/**'],
+    // Type-aware rules (floating promises, unsafe any, misused promises) for all application code
+    files: ['src/**/*.ts'],
     extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {

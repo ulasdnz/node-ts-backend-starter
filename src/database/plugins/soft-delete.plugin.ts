@@ -1,10 +1,15 @@
 import {
   Document,
   Model,
+  mongo,
+  type MongooseUpdateQueryOptions,
   type PipelineStage,
   Query,
+  type QueryFilter,
   Schema,
   Types,
+  type UpdateQuery,
+  type UpdateWithAggregationPipeline,
   type UpdateWriteOpResult,
 } from 'mongoose';
 
@@ -28,23 +33,29 @@ interface SoftDeleteQueryHelpers {
 
 type SoftDeleteQuery<T> = Query<SoftDeleted<T>[], SoftDeleted<T>> & SoftDeleteQueryHelpers;
 
+type Filter = QueryFilter<Record<string, unknown>>;
+type Update = UpdateQuery<Record<string, unknown>> | UpdateWithAggregationPipeline;
+type UpdateOptions = mongo.UpdateOptions & MongooseUpdateQueryOptions;
+
+const ACTIVE_ONLY: PipelineStage.Match = { $match: { deleted: false } };
+
 export interface SoftDeleteModel<T> extends Model<T, SoftDeleteQueryHelpers> {
   softDeleteById(id: string): Promise<T | null>;
 
   restoreById(id: string): Promise<T | null>;
 
-  countActive(filter?: Record<string, unknown>): Promise<number>;
+  countActive(filter?: Filter): Promise<number>;
 
   updateManyActive(
-    filter: Record<string, unknown>,
-    update: Record<string, unknown>,
-    options?: Record<string, unknown>,
+    filter: Filter,
+    update: Update,
+    options?: UpdateOptions,
   ): Promise<UpdateWriteOpResult>;
 
   updateManyWithDeleted(
-    filter: Record<string, unknown>,
-    update: Record<string, unknown>,
-    options?: Record<string, unknown>,
+    filter: Filter,
+    update: Update,
+    options?: UpdateOptions,
   ): Promise<UpdateWriteOpResult>;
 
   aggregateSafe(pipeline?: PipelineStage[]): Promise<T[]>;
@@ -114,7 +125,7 @@ export function softDeletePlugin(schema: Schema) {
     this.deletedAt = null;
     return this.save();
   };
-  schema.statics.softDeleteById = function (id) {
+  schema.statics.softDeleteById = function (id: string) {
     return this.findByIdAndUpdate(
       id,
       {
@@ -125,7 +136,7 @@ export function softDeletePlugin(schema: Schema) {
     );
   };
 
-  schema.statics.restoreById = function (id) {
+  schema.statics.restoreById = function (id: string) {
     return this.findByIdAndUpdate(
       id,
       {
@@ -136,59 +147,52 @@ export function softDeletePlugin(schema: Schema) {
     );
   };
 
-  schema.statics.countActive = function (filter = {}) {
-    return this.countDocuments({
-      ...filter,
-      deleted: false,
-    });
+  schema.statics.countActive = function (
+    this: Model<Record<string, unknown>>,
+    filter: Filter = {},
+  ) {
+    return this.countDocuments({ ...filter, deleted: false });
   };
 
-  schema.statics.updateManyActive = function (filter, update, options = {}) {
-    return this.updateMany(
-      {
-        ...filter,
-        deleted: false,
-      },
-      update,
-      options,
-    );
+  schema.statics.updateManyActive = function (
+    this: Model<Record<string, unknown>>,
+    filter: Filter,
+    update: Update,
+    options?: UpdateOptions,
+  ) {
+    return this.updateMany({ ...filter, deleted: false }, update, options);
   };
 
-  schema.statics.updateManyWithDeleted = function (filter, update, options = {}) {
+  schema.statics.updateManyWithDeleted = function (
+    this: Model<Record<string, unknown>>,
+    filter: Filter,
+    update: Update,
+    options?: UpdateOptions,
+  ) {
     return this.updateMany(filter, update, options);
   };
 
-  schema.statics.aggregateSafe = function (pipeline = []) {
-    if (!Array.isArray(pipeline) || pipeline.length === 0) {
-      return this.aggregate([{ $match: { deleted: false } }]);
-    }
-
+  schema.statics.aggregateSafe = function (
+    this: Model<Record<string, unknown>>,
+    pipeline: PipelineStage[] = [],
+  ) {
     const [firstStage, ...rest] = pipeline;
+    if (!firstStage) return this.aggregate([ACTIVE_ONLY]);
 
-    // $geoNear → soft delete MUST be inside query
-    if (firstStage.$geoNear) {
-      const geoNear = firstStage.$geoNear;
-
+    // $geoNear has to be the first stage, so the filter goes into its own query
+    if ('$geoNear' in firstStage) {
+      const { $geoNear } = firstStage;
       return this.aggregate([
-        {
-          $geoNear: {
-            ...geoNear,
-            query: {
-              ...(geoNear.query || {}),
-              deleted: false,
-            },
-          },
-        },
+        { $geoNear: { ...$geoNear, query: { ...$geoNear.query, deleted: false } } },
         ...rest,
       ]);
     }
 
-    // $search / vectorSearch → consciously skipped
-    if (firstStage.$search || firstStage.$vectorSearch || firstStage.$searchMeta) {
+    // Atlas Search stages have to come first as well; filtering their results is the caller's job
+    if ('$search' in firstStage || '$vectorSearch' in firstStage || '$searchMeta' in firstStage) {
       return this.aggregate(pipeline);
     }
 
-    // default aggregation
-    return this.aggregate([{ $match: { deleted: false } }, ...pipeline]);
+    return this.aggregate([ACTIVE_ONLY, ...pipeline]);
   };
 }
