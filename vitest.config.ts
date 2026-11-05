@@ -4,17 +4,42 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    setupFiles: ['./src/test/setup.ts'],
+    globalSetup: ['./src/test/global-setup.ts'],
+    include: ['src/**/*.{test,spec}.ts'],
+    testTimeout: 30_000,
+    hookTimeout: 120_000,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text-summary', 'json-summary', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: [
+        '**/__tests__/**',
+        'src/test/**',
+        'src/**/*.d.ts',
+        // Command-line entry points, exercised by running them rather than by unit tests. The
+        // migration runner, the migrations and the seeder they call are covered.
+        'src/app.ts',
+        'src/database/migrations/index.ts',
+        'src/database/seeders/index.ts',
+        'src/scripts/**',
+      ],
+      // A floor just under the current numbers: coverage can only ratchet up from here
+      thresholds: {
+        lines: 89,
+        statements: 88,
+        functions: 91,
+        branches: 76,
+      },
     },
-    include: ['src/**/*.{test,spec}.ts'],
     env: {
       NODE_ENV: 'test',
-      MONGO_URI: 'mongodb://localhost:27017/test',
-      JWT_SECRET: 'test_secret',
-      REDIS_URL: 'redis://localhost:6379',
+      // Placeholders that satisfy config validation. Tests reach MongoDB through setupTestDatabase,
+      // and nothing listens on the Redis port, so no test can touch a developer's local Redis.
+      MONGO_URI: 'mongodb://127.0.0.1:27017/unused',
+      REDIS_URL: 'redis://127.0.0.1:1',
+      JWT_SECRET: 'test-only-jwt-secret-of-at-least-32-chars',
+      // The minimum cost: hashing speed is not what the tests are about
+      BCRYPT_SALT_ROUNDS: '4',
     },
   },
 });

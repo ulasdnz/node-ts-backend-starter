@@ -12,12 +12,15 @@ export const initI18n = async () => {
     .use(i18nextMiddleware.LanguageDetector)
     .use(Backend)
     .init({
+      // Keeps i18next from printing a plain-text banner at start, which log collectors cannot parse
+      showSupportNotice: false,
       fallbackLng: 'en',
       preload: ['en', 'tr'],
       supportedLngs: ['en', 'tr'],
       load: 'languageOnly',
       backend: {
-        loadPath: path.resolve(__dirname, '../../utils/lang/{{lng}}.json'),
+        // locales/ sits at the project root, so the same path resolves from src/ and from dist/
+        loadPath: path.resolve(__dirname, '../../../locales/{{lng}}/translation.json'),
       },
       detection: {
         order: ['header', 'querystring', 'cookie'],

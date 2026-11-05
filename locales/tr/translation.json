@@ -1,0 +1,57 @@
+{
+  "validation": {
+    "email_invalid": "Geçersiz e-posta formatı",
+    "email_required": "E-posta gereklidir",
+    "name_min": "İsim en az 2 karakter olmalıdır",
+    "name_max": "İsim en fazla 24 karakter olmalıdır",
+    "name_required": "İsim gereklidir",
+    "surname_required": "Soyisim gereklidir",
+    "password_policy_min": "Şifre en az 8 karakter olmalıdır",
+    "password_policy_max": "Şifre en fazla 64 karakter olmalıdır",
+    "password_required": "Şifre gereklidir",
+    "field_not_allowed": "Bu alana izin verilmiyor.",
+    "password_policy_bytes": "Şifre çok uzun. Daha az özel karakter kullanın.",
+    "page_invalid": "Sayfa 1 veya daha büyük bir tam sayı olmalıdır.",
+    "limit_invalid": "Limit 1 ile 100 arasında bir tam sayı olmalıdır.",
+    "sort_invalid": "Sıralama parametresi çok uzun."
+  },
+  "auth": {
+    "invalid_token": "Geçersiz token",
+    "token_expired": "Token süresi doldu",
+    "invalid_credentials": "Geçersiz e-posta veya şifre",
+    "forbidden": "Bu işlem için yetkiniz yok.",
+    "missing_token": "Kimlik doğrulama gerekli. Bir bearer token gönderin.",
+    "account_disabled": "Bu hesap devre dışı.",
+    "too_many_attempts": "Çok fazla başarısız giriş denemesi. Daha sonra tekrar deneyin."
+  },
+  "user": {
+    "email_in_use": "E-posta kullanımda",
+    "not_found": "Kullanıcı bulunamadı",
+    "avatar_required": "Avatar dosyası gereklidir",
+    "invalid_current_password": "Mevcut şifre hatalı."
+  },
+  "upload": {
+    "only_images": "Yalnızca JPEG, PNG veya WebP görselleri yüklenebilir.",
+    "file_too_large": "Dosya çok büyük. Sınır 5 MB.",
+    "invalid_file": "Yükleme işlenemedi. Beklenen alanda tek bir dosya gönderin."
+  },
+  "success": {
+    "register": "Kullanıcı başarıyla kaydedildi",
+    "login_restored": "Tekrar hoşgeldiniz! Hesabınız geri yüklendi.",
+    "delete": "Kullanıcı başarıyla silindi. {{days}} gün içinde kalıcı olarak silinecektir.",
+    "update": "Kullanıcı başarıyla güncellendi",
+    "avatar_update": "Avatar başarıyla güncellendi",
+    "password_changed": "Şifre değiştirildi. Diğer oturumlarınız kapatıldı."
+  },
+  "error": {
+    "unexpected": "Beklenmedik bir hata oluştu.",
+    "validation_failed": "Doğrulama başarısız.",
+    "duplicate_entry": "Bu {{field}} zaten kullanımda.",
+    "rate_limit_exceeded": "Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.",
+    "invalid_json": "İstek gövdesi geçerli bir JSON değil.",
+    "payload_too_large": "İstek gövdesi çok büyük.",
+    "bad_request": "Geçersiz istek.",
+    "invalid_id": "Geçersiz ID biçimi.",
+    "route_not_found": "İstenen endpoint bulunamadı."
+  }
+}

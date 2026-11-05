@@ -1,15 +1,17 @@
+export type ServiceStatus = 'healthy' | 'unhealthy';
+
+/** `degraded`: serving requests, but with a non-critical dependency down. */
+export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
+
 export interface HealthResponse {
-  status: 'healthy' | 'unhealthy';
+  status: HealthStatus;
   timestamp: string;
   uptime: number;
   memory: {
     rss: number;
     heapUsed: number;
   };
-  services: {
-    mongodb: 'healthy' | 'unhealthy';
-    redis: 'healthy' | 'unhealthy';
-  };
+  services: Record<string, ServiceStatus>;
 }
 
 export interface ReadinessResponse {

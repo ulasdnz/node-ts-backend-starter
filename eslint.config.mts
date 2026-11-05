@@ -39,6 +39,31 @@ export default tseslint.config(
     },
   },
   {
+    // Type-aware rules (floating promises, unsafe any, misused promises) for all application code
+    files: ['src/**/*.ts'],
+    extends: [tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    // Response bodies from supertest and vi mocks are untyped by nature; application code keeps the
+    // unsafe-any checks
+    files: ['src/**/__tests__/**/*.ts', 'src/test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
+  {
     files: [
       'src/modules/user/**/*.{ts,js}',
       // if you want to use soft delete plugin in other modules, add them here

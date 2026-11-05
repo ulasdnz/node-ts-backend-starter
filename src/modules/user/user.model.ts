@@ -1,9 +1,10 @@
 import mongoose, { type InferSchemaType, Types } from 'mongoose';
 import { regexes } from 'zod';
+import { auditLogPlugin } from '../../database/plugins/audit-log.plugin.js';
 import {
   type SoftDeleteModel,
   softDeletePlugin,
-} from '../../database/plugins/softDelete.plugin.js';
+} from '../../database/plugins/soft-delete.plugin.js';
 const { Schema, model } = mongoose;
 
 const userSchema = new Schema(
@@ -54,6 +55,12 @@ const userSchema = new Schema(
       default: true,
     },
     passwordChangedAt: Date,
+    // Moving to the next version revokes every token issued before (see issueAccessToken)
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
   },
   {
     timestamps: true,
@@ -71,6 +78,7 @@ export type IUser = InferSchemaType<typeof userSchema> & {
 };
 
 userSchema.plugin(softDeletePlugin);
+userSchema.plugin(auditLogPlugin);
 
 const User = model<IUser, SoftDeleteModel<IUser>>('User', userSchema);
 export default User;

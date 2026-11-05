@@ -6,6 +6,11 @@ declare global {
         role: string;
       };
     }
+
+    interface Locals {
+      /** Mount path of the innermost router the request entered (see createRouter). */
+      routeBase?: string;
+    }
   }
 }
 export {};

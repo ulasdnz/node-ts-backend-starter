@@ -1,46 +1,57 @@
-import type { NextFunction, Request, Response } from 'express';
-import { RateLimiterMemory, RateLimiterRedis } from 'rate-limiter-flexible';
-import { createRedisClient } from '../../lib/redis.js';
-import CustomError from '../errors/index.js';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { Redis } from 'ioredis';
+import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible';
+import { RateLimitError } from '../errors/index.js';
 
-interface RateLimiterReject {
-  remainingPoints: number;
-  msBeforeNext: number;
-  consumedPoints: number;
-  isFirstInDuration: boolean;
+export interface RateLimiterOptions {
+  keyPrefix: string;
+  points: number;
+  durationSeconds: number;
+  /** Shares the limit across instances; without it each instance counts on its own. */
+  storeClient?: Redis;
 }
 
-// Dedicated Redis client for Rate Limiter with offline queue disabled
-// This prevents the request from hanging if Redis is down
-const redisClient = createRedisClient({ enableOfflineQueue: false });
+/**
+ * Fixed-window rate limit per client IP. While the Redis store is unavailable each instance falls
+ * back to an in-memory limit of the same size, rather than failing requests or letting them through
+ * unlimited.
+ */
+export const createRateLimiter = ({
+  keyPrefix,
+  points,
+  durationSeconds,
+  storeClient,
+}: RateLimiterOptions): RequestHandler => {
+  const memoryLimiter = new RateLimiterMemory({ keyPrefix, points, duration: durationSeconds });
+  const limiter = storeClient
+    ? new RateLimiterRedis({
+        storeClient,
+        keyPrefix,
+        points,
+        duration: durationSeconds,
+        // Go straight to the in-memory limit instead of waiting on a Redis that is not connected
+        rejectIfRedisNotReady: true,
+        insuranceLimiter: memoryLimiter,
+      })
+    : memoryLimiter;
 
-const rateLimiterMemory = new RateLimiterMemory({
-  points: 100,
-  duration: 60,
-});
+  const setRateLimitHeaders = (res: Response, result: RateLimiterRes): void => {
+    res.setHeader('RateLimit-Limit', String(points));
+    res.setHeader('RateLimit-Remaining', String(Math.max(result.remainingPoints, 0)));
+    res.setHeader('RateLimit-Reset', String(Math.ceil(result.msBeforeNext / 1000)));
+  };
 
-const limiter = new RateLimiterRedis({
-  storeClient: redisClient,
-  keyPrefix: 'rlflx',
-  points: 100,
-  duration: 60,
-  blockDuration: 60,
-  insuranceLimiter: rateLimiterMemory,
-});
-
-export async function rateLimiterMiddleware(req: Request, res: Response, next: NextFunction) {
-  const key = req.ip;
-  if (!key) return next();
-
-  try {
-    const rlRes = await limiter.consume(key.toString());
-    res.setHeader('RateLimit-Limit', '100');
-    res.setHeader('RateLimit-Remaining', String(rlRes.remainingPoints));
-    res.setHeader('RateLimit-Reset', new Date(Date.now() + rlRes.msBeforeNext).toISOString());
-    next();
-  } catch (rej) {
-    const retrySecs = Math.ceil((rej as RateLimiterReject).msBeforeNext / 1000) || 1;
-    res.setHeader('Retry-After', String(retrySecs));
-    next(new CustomError(429, 'error.rate_limit_exceeded'));
-  }
-}
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      setRateLimitHeaders(res, await limiter.consume(req.ip ?? 'unknown'));
+      next();
+    } catch (rejection) {
+      if (rejection instanceof RateLimiterRes) {
+        setRateLimitHeaders(res, rejection);
+        next(new RateLimitError(Math.ceil(rejection.msBeforeNext / 1000) || 1));
+        return;
+      }
+      next(rejection);
+    }
+  };
+};

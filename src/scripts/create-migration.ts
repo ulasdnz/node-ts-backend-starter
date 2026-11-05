@@ -1,54 +1,37 @@
-import fs from 'fs';
-import path from 'path';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 
-const migrationName = process.argv[2];
+const NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const name = process.argv[2];
 
-if (!migrationName) {
-  console.error('❌  Please provide a migration name');
-  console.error('👉  Example: npm run migration:create add-user-fields');
+if (!name || !NAME_PATTERN.test(name)) {
+  console.error('Usage: npm run migration:create <name>, in kebab-case: backfill-user-locale');
   process.exit(1);
 }
 
-// Timestamp format: YYYYMMDDHHMMSS
-const timestamp = new Date()
-  .toISOString()
-  .replace(/[-:TZ.]/g, '')
-  .slice(0, 14);
+// YYYYMMDDHHMMSS in UTC, so the files sort, and run, in the order they were created
+const timestamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+const fileName = `${timestamp}-${name}.ts`;
+const filePath = path.join(process.cwd(), 'src', 'database', 'migrations', fileName);
 
-const fileName = `${timestamp}-${migrationName}.ts`;
-
-const dirPath = path.join(process.cwd(), 'src', 'database', 'migrations');
-const filePath = path.join(dirPath, fileName);
-
-if (!fs.existsSync(dirPath)) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
-
-const template = `import mongoose from 'mongoose';
-import { logger } from '../../lib/logger.js'; 
+const template = `import type { MigrationContext } from './runner.js';
 
 /**
- * Migration: ${migrationName}
+ * ${name}
+ *
+ * Runs once per database, in file name order, before the indexes are built. Work on collections
+ * through \`db\` rather than models, so the migration still works after the models change. Keep it
+ * safe to run again: a run that fails halfway starts over next time.
  */
-export async function up(): Promise<void> {
-  logger.info('Applying migration: ${migrationName}');
+export async function up({ db, logger }: MigrationContext): Promise<void> {
+  // const { modifiedCount } = await db
+  //   .collection('users')
+  //   .updateMany({ locale: { $exists: false } }, { $set: { locale: 'en' } });
 
-  // Use mongoose.connection.collection('name') to ensure decoupling.
-  
-  // Example:
-  // const db = mongoose.connection.db;
-  // await db.collection('users').createIndex({ email: 1 }, { unique: true });
-}
-
-export async function down(): Promise<void> {
-  logger.info('Reverting migration: ${migrationName}');
-
-  // Example:
-  // const db = mongoose.connection.db;
-  // await db.collection('users').dropIndex('users_email_unique');
+  logger.info('Applied ${name}', { event: 'migration.${name}' });
 }
 `;
 
-fs.writeFileSync(filePath, template);
-
-console.log(`✅  Migration created: src/database/migrations/${fileName}`);
+// 'wx' refuses to overwrite an existing file
+writeFileSync(filePath, template, { flag: 'wx' });
+console.log(`Created src/database/migrations/${fileName}`);

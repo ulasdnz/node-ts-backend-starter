@@ -2,24 +2,27 @@ import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 
-export async function connectDB() {
-  try {
-    await mongoose.connect(config.MONGO_URI, {
-      autoIndex: config.NODE_ENV === 'development',
-      serverSelectionTimeoutMS: 5000,
-    });
-    logger.info('MongoDB connected successfully (manual)');
-  } catch (error) {
-    logger.error('MongoDB connection failed:', error);
-    process.exit(1);
-  }
+const SERVER_SELECTION_TIMEOUT_MS = 5000;
+
+export interface ConnectOptions {
+  /**
+   * Builds missing indexes when models are compiled. Off by default: deployments build them in the
+   * migrate step instead, so an app start never runs index builds against a production database.
+   */
+  autoIndex?: boolean;
 }
 
-export async function disconnectDB() {
-  try {
-    await mongoose.connection.close();
-    logger.info('MongoDB connection closed (manual)');
-  } catch (error) {
-    logger.error('Error while closing MongoDB connection:', error);
-  }
-}
+/** Opens the default Mongoose connection; throws when MongoDB cannot be reached in time. */
+export const connectDB = async ({ autoIndex = false }: ConnectOptions = {}): Promise<void> => {
+  await mongoose.connect(config.MONGO_URI, {
+    autoIndex,
+    serverSelectionTimeoutMS: SERVER_SELECTION_TIMEOUT_MS,
+  });
+  logger.info('MongoDB connected', { event: 'mongodb.connected' });
+};
+
+/** Closes the default connection; a failure is the caller's to handle. */
+export const disconnectDB = async (): Promise<void> => {
+  await mongoose.connection.close();
+  logger.info('MongoDB connection closed', { event: 'mongodb.closed' });
+};

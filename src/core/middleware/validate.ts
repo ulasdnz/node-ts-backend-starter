@@ -1,11 +1,11 @@
-import type { NextFunction, Request, Response } from 'express';
-import { ZodType } from 'zod';
+import type { Request, RequestHandler } from 'express';
+import type { ZodType } from 'zod';
 
 export const validateBody =
-  (schema: ZodType) => async (req: Request, _res: Response, next: NextFunction) => {
+  (schema: ZodType): RequestHandler =>
+  async (req, _res, next) => {
     try {
-      const result = await schema.parseAsync(req.body);
-      req.body = result;
+      req.body = await schema.parseAsync(req.body);
       next();
     } catch (error) {
       next(error);
@@ -13,10 +13,10 @@ export const validateBody =
   };
 
 export const validateParams =
-  (schema: ZodType) => async (req: Request, _res: Response, next: NextFunction) => {
+  (schema: ZodType): RequestHandler =>
+  async (req, _res, next) => {
     try {
-      const result = await schema.parseAsync(req.params);
-      req.params = result as unknown as Request['params'];
+      req.params = (await schema.parseAsync(req.params)) as Request['params'];
       next();
     } catch (error) {
       next(error);
@@ -24,10 +24,17 @@ export const validateParams =
   };
 
 export const validateQuery =
-  (schema: ZodType) => async (req: Request, _res: Response, next: NextFunction) => {
+  (schema: ZodType): RequestHandler =>
+  async (req, _res, next) => {
     try {
-      const result = await schema.parseAsync(req.query);
-      req.query = result as unknown as Request['query'];
+      const query = await schema.parseAsync(req.query);
+      // Express 5 exposes req.query through a getter, so the parsed value has to be defined over it
+      Object.defineProperty(req, 'query', {
+        value: query,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
       next();
     } catch (error) {
       next(error);
