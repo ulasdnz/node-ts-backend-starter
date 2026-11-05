@@ -10,7 +10,25 @@ export default defineConfig({
     hookTimeout: 120_000,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text-summary', 'json-summary', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: [
+        '**/__tests__/**',
+        'src/test/**',
+        'src/**/*.d.ts',
+        // Operational entry points, exercised by running them rather than by unit tests
+        'src/app.ts',
+        'src/database/migrations/**',
+        'src/database/seeders/**',
+        'src/scripts/**',
+      ],
+      // A floor just under the current numbers: coverage can only ratchet up from here
+      thresholds: {
+        lines: 65,
+        statements: 66,
+        functions: 67,
+        branches: 60,
+      },
     },
     env: {
       NODE_ENV: 'test',
