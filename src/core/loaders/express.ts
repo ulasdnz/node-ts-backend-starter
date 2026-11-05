@@ -2,8 +2,9 @@ import compression from 'compression';
 import cors from 'cors';
 import express, { json, urlencoded } from 'express';
 import helmet from 'helmet';
-import { httpLogger } from '../../lib/logger.js';
-import { errorHandler } from '../middleware/error-handler.js';
+import { config } from '../../config/index.js';
+import { httpLogger, logger } from '../../lib/logger.js';
+import { createErrorHandler, notFoundHandler } from '../middleware/error-handler.js';
 import { rateLimiterMiddleware } from '../middleware/rate-limiter.js';
 import { contextMiddleware } from '../middleware/request-context.js';
 import { initI18n } from './i18n.js';
@@ -40,7 +41,8 @@ export const initExpress = async () => {
 
   app.use('/api/v1', userRoutes);
 
-  app.use(errorHandler);
+  app.use(notFoundHandler);
+  app.use(createErrorHandler({ logger, nodeEnv: config.NODE_ENV }));
 
   return app;
 };

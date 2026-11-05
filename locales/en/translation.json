@@ -1,6 +1,4 @@
 {
-  "greeting": "Hello",
-  "welcome_message": "Welcome",
   "validation": {
     "email_invalid": "Invalid email format",
     "email_required": "Email is required",
@@ -10,7 +8,8 @@
     "surname_required": "Surname is required",
     "password_policy_min": "Password must be at least 8 characters",
     "password_policy_max": "Password must be at most 20 characters",
-    "password_required": "Password is required"
+    "password_required": "Password is required",
+    "field_not_allowed": "Field is not allowed."
   },
   "auth": {
     "missing_header": "Authorization header is missing",
@@ -41,6 +40,11 @@
     "unexpected": "An unexpected error occurred.",
     "validation_failed": "Validation failed.",
     "duplicate_entry": "This {{field}} is already in use.",
-    "rate_limit_exceeded": "Too many requests. Please try again later."
+    "rate_limit_exceeded": "Too many requests. Please try again later.",
+    "invalid_json": "Request body is not valid JSON.",
+    "payload_too_large": "Request body is too large.",
+    "bad_request": "Bad request.",
+    "invalid_id": "Invalid ID format.",
+    "route_not_found": "The requested endpoint does not exist."
   }
 }

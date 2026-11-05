@@ -10,7 +10,6 @@ export async function register(req: Request, res: Response<SuccessResponse<UserR
   const user = await userService.registerUser(req.body);
 
   res.status(201).json({
-    success: true,
     message: req.t('success.register'),
     data: user,
   });
@@ -25,7 +24,6 @@ export async function login(
   const messageKey = wasRestored ? 'success.login_restored' : 'success.login';
 
   res.json({
-    success: true,
     message: req.t(messageKey),
     data: result,
   });
@@ -38,7 +36,6 @@ export async function deleteUser(req: Request, res: Response<SuccessResponse<voi
   const message = req.t('success.delete', { days: config.USER_DELETION_RETENTION_DAYS });
 
   res.json({
-    success: true,
     message: message,
     data: undefined,
   });
@@ -49,7 +46,6 @@ export async function updateUser(req: Request, res: Response<SuccessResponse<Use
   const result = await userService.updateUser(userId, req.body);
 
   res.json({
-    success: true,
     message: req.t('success.update'),
     data: result,
   });
@@ -64,7 +60,6 @@ export async function updateAvatar(req: Request, res: Response<SuccessResponse<U
 
   const result = await userService.updateAvatar(userId, req.file);
   res.json({
-    success: true,
     message: req.t('success.avatar_update'),
     data: result,
   });
@@ -75,7 +70,6 @@ export async function getUser(req: Request, res: Response<SuccessResponse<UserRe
   const user = await userService.getUser(userId);
 
   res.json({
-    success: true,
     message: req.t('success.get'),
     data: user,
   });
@@ -88,7 +82,6 @@ export async function getUsers(
   const users = await userService.getUsers(req.query);
 
   res.json({
-    success: true,
     message: req.t('success.get_all'),
     data: users,
   });
@@ -101,7 +94,6 @@ export async function getUserById(
   const user = await userService.findById(req.params.id);
 
   res.json({
-    success: true,
     message: req.t('success.get'),
     data: user,
   });
