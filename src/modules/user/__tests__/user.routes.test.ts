@@ -1,4 +1,4 @@
-import type { Express, NextFunction, Request, Response } from 'express';
+import type { Express } from 'express';
 import request from 'supertest';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { initExpress } from '../../../core/loaders/express.js';
@@ -13,14 +13,12 @@ vi.mock('../../../jobs/queues', () => ({
   },
 }));
 
+// The client never becomes ready, so the rate limiter uses its in-memory limit
 vi.mock('../../../lib/redis', () => ({
   redisClient: {
+    status: 'end',
     ping: vi.fn().mockResolvedValue('PONG'),
   },
-}));
-
-vi.mock('../../../core/middleware/rate-limiter', () => ({
-  rateLimiterMiddleware: (req: Request, res: Response, next: NextFunction) => next(),
 }));
 
 let app: Express;
