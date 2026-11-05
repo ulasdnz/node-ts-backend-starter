@@ -3,6 +3,7 @@ import type { Logger } from 'winston';
 import type { HealthProbe } from './health.probes.js';
 import type {
   HealthResponse,
+  HealthStatus,
   LivenessResponse,
   ReadinessResponse,
   ServiceStatus,
@@ -23,11 +24,13 @@ export const createHealthRouter = ({
 }: HealthRouterOptions): Router => {
   const router = Router();
 
-  const runProbes = async (): Promise<Record<string, ServiceStatus>> => {
-    const results = await Promise.allSettled(probes.map((probe) => probe.check()));
+  const criticalProbes = probes.filter((probe) => probe.critical !== false);
+
+  const runProbes = async (selected: HealthProbe[]): Promise<Record<string, ServiceStatus>> => {
+    const results = await Promise.allSettled(selected.map((probe) => probe.check()));
 
     return Object.fromEntries(
-      probes.map((probe, index): [string, ServiceStatus] => {
+      selected.map((probe, index): [string, ServiceStatus] => {
         const result = results[index];
         if (result?.status !== 'rejected') return [probe.name, 'healthy'];
 
@@ -47,26 +50,30 @@ export const createHealthRouter = ({
     res.status(200).json({ alive: true });
   });
 
-  // Readiness asks "should traffic be routed here?": not while shutting down or with a dependency down
+  // Readiness asks "should traffic be routed here?": not while shutting down or while a dependency
+  // the API cannot work without is down
   router.get('/health/ready', async (_req: Request, res: Response<ReadinessResponse>) => {
     if (isShuttingDown()) {
       res.status(503).json({ ready: false });
       return;
     }
 
-    const services = await runProbes();
+    const services = await runProbes(criticalProbes);
     const ready = Object.values(services).every((status) => status === 'healthy');
     res.status(ready ? 200 : 503).json({ ready });
   });
 
+  // Every dependency: "degraded" means serving, but with a non-critical dependency down
   router.get('/health', async (_req: Request, res: Response<HealthResponse>) => {
-    const services = await runProbes();
-    const healthy =
-      !isShuttingDown() && Object.values(services).every((status) => status === 'healthy');
+    const services = await runProbes(probes);
+    const criticalHealthy = criticalProbes.every((probe) => services[probe.name] === 'healthy');
+    const allHealthy = Object.values(services).every((status) => status === 'healthy');
+    const status: HealthStatus =
+      isShuttingDown() || !criticalHealthy ? 'unhealthy' : allHealthy ? 'healthy' : 'degraded';
     const { rss, heapUsed } = process.memoryUsage();
 
-    res.status(healthy ? 200 : 503).json({
-      status: healthy ? 'healthy' : 'unhealthy',
+    res.status(status === 'unhealthy' ? 503 : 200).json({
+      status,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       memory: { rss: toMegabytes(rss), heapUsed: toMegabytes(heapUsed) },

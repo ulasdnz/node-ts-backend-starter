@@ -78,8 +78,32 @@ describe('health routes', () => {
   it('a probe that hangs counts as unhealthy', async () => {
     const hanging = redisProbe({ ping: () => new Promise<'PONG'>(() => {}) }, 50);
 
-    const res = await request(buildApp([hanging]).app).get('/health/ready');
+    const res = await request(buildApp([hanging]).app).get('/health');
 
-    expect(res.status).toBe(503);
+    expect(res.body.services).toEqual({ redis: 'unhealthy' });
+  });
+
+  it('ready stays 200 when only a non-critical probe fails', async () => {
+    const cache = { ...probe('redis', false), critical: false };
+
+    const res = await request(buildApp([probe('mongodb'), cache]).app).get('/health/ready');
+
+    expect(res.status).toBe(200);
+  });
+
+  it('health reports degraded service when only a non-critical probe fails', async () => {
+    const cache = { ...probe('redis', false), critical: false };
+
+    const res = await request(buildApp([probe('mongodb'), cache]).app).get('/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'degraded',
+      services: { mongodb: 'healthy', redis: 'unhealthy' },
+    });
+  });
+
+  it('treats Redis as a dependency the API can run without', () => {
+    expect(redisProbe({ ping: () => Promise.resolve('PONG' as const) }).critical).toBe(false);
   });
 });

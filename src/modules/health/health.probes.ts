@@ -5,6 +5,11 @@ import { withTimeout } from '../../utils/timeout.js';
 /** A dependency check; throws when the dependency cannot serve requests. */
 export interface HealthProbe {
   name: string;
+  /**
+   * Whether the API needs this dependency to serve requests (default true). Readiness fails only on
+   * critical probes; /health reports every probe.
+   */
+  critical?: boolean;
   check(): Promise<void>;
 }
 
@@ -16,6 +21,7 @@ export const mongoProbe = (
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): HealthProbe => ({
   name: 'mongodb',
+  critical: true,
   check: async () => {
     if (connection.readyState !== mongoose.ConnectionStates.connected || !connection.db) {
       throw new Error('MongoDB is not connected');
@@ -29,6 +35,9 @@ export const redisProbe = (
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): HealthProbe => ({
   name: 'redis',
+  // Caching and rate limiting degrade without Redis instead of failing, so a Redis outage must not
+  // take every instance out of rotation at once
+  critical: false,
   check: async () => {
     await withTimeout(client.ping(), timeoutMs, 'Redis ping');
   },
